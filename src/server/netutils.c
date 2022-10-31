@@ -10,9 +10,7 @@
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
-extern const char *
-sockaddr_to_human(char *buff, const size_t buffsize,
-                  const struct sockaddr *addr) {
+extern const char * sockaddr_to_human(char *buff, const size_t buffsize, const struct sockaddr *addr) {
     if(addr == 0) {
         strncpy(buff, "null", buffsize);
         return buff;
@@ -54,8 +52,7 @@ sockaddr_to_human(char *buff, const size_t buffsize,
     return buff;
 }
 
-int
-sock_blocking_write(const int fd, buffer *b) {
+int sock_blocking_write(const int fd, buffer *b) {
         int  ret = 0;
     ssize_t  nwritten;
 	 size_t  n;
@@ -75,8 +72,7 @@ sock_blocking_write(const int fd, buffer *b) {
     return ret;
 }
 
-int
-sock_blocking_copy(const int source, const int dest) {
+int sock_blocking_copy(const int source, const int dest) {
     int ret = 0;
     char buf[4096];
     ssize_t nread;

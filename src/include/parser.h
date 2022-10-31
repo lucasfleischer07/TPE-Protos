@@ -62,32 +62,26 @@ struct parser_definition {
  *
  * `classes`: caracterización de cada caracter (256 elementos)
  */
-struct parser *
-parser_init    (const unsigned *classes,
-                const struct parser_definition *def);
+struct parser * parser_init(const unsigned *classes, const struct parser_definition *def);
 
 /** destruye el parser */
-void
-parser_destroy  (struct parser *p);
+void parser_destroy(struct parser *p);
 
 /** permite resetear el parser al estado inicial */
-void
-parser_reset    (struct parser *p);
+void parser_reset(struct parser *p);
 
 /**
  * el usuario alimenta el parser con un caracter, y el parser retorna un evento
  * de parsing. Los eventos son reusado entre llamadas por lo que si se desea
  * capturar los datos se debe clonar.
  */
-const struct parser_event *
-parser_feed     (struct parser *p, const uint8_t c);
+const struct parser_event * parser_feed(struct parser *p, const uint8_t c);
 
 /**
  * En caso de la aplicacion no necesite clases caracteres, se
  * provee dicho arreglo para ser usando en `parser_init'
  */
-const unsigned *
-parser_no_classes(void);
+const unsigned * parser_no_classes(void);
 
 
 #endif

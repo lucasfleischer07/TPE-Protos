@@ -17,9 +17,7 @@
  * @param nport puerto en network byte order
  *
  */
-const char *
-sockaddr_to_human(char *buff, const size_t buffsize,
-                  const struct sockaddr *addr);
+const char * sockaddr_to_human(char *buff, const size_t buffsize, const struct sockaddr *addr);
 
 
 
@@ -28,8 +26,7 @@ sockaddr_to_human(char *buff, const size_t buffsize,
  *
  * Retorna 0 si se realizó sin problema y errno si hubo problemas
  */
-int
-sock_blocking_write(const int fd, buffer *b);
+int sock_blocking_write(const int fd, buffer *b);
 
 
 /**
@@ -37,7 +34,6 @@ sock_blocking_write(const int fd, buffer *b);
  *
  * Retorna 0 si se realizó sin problema y errno si hubo problemas
  */
-int
-sock_blocking_copy(const int source, const int dest);
+int sock_blocking_copy(const int source, const int dest);
 
 #endif
