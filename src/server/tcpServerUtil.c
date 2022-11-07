@@ -7,12 +7,20 @@
 #include "logger.h"
 #include "util.h"
 #include "tcpServerUtil.h"
+#include "selector.h"
+#include "clientSock.h"
 
 #define MAXPENDING 5 // Maximum outstanding connection requests
 #define BUFSIZE 256
 #define MAX_ADDR_BUFFER 128
 
 static char addrBuffer[MAX_ADDR_BUFFER];
+
+
+
+
+
+
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
@@ -220,4 +228,9 @@ int handleTCPEchoClient(int clntSocket) {
 	return 1;
 }
 
+static void
+sigterm_handler(const int signal) {
+    printf("signal %d, cleaning up and exiting\n",signal);
+    //done = true;
+}
 
