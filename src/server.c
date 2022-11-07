@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/types.h>
@@ -12,13 +13,22 @@
 #include "tcpServerUtil.h"
 #include "signal.h"
 #include "selector.h"
+#include "clientSock.h"
 
+static bool ended = false;
 
+static void
+sigterm_handler(const int signal) {
+    printf("signal %d, cleaning up and exiting\n",signal);
+    ended = true;
+}
 
 int main(int argc, char *argv[]) {
-	int master_socket , addrlen , new_socket , client_socket[30] = {0} , max_clients = 30 , activity, i , valread , sd;
-	int max_sd;
+	int master_socket , addrlen ;
     fd_selector selector      = NULL;
+    int ret = 0;
+    selector_status ss = SELECTOR_SUCCESS;
+    const char* err_msg = NULL;
 	//a message
     char *message = "Welocme to ECHO \r\n";
 	fd_set readfds;
@@ -72,85 +82,38 @@ int main(int argc, char *argv[]) {
         .handle_close      = NULL, // nada que liberar
     };
 
+    ss = selector_register(selector, master_socket, &master_socket_handler, OP_READ, NULL);
 
+    if (ss != SELECTOR_SUCCESS) {
+        err_msg = "registering fd";
+        goto finally;
+    }
 	addrlen = sizeof(struct sockaddr_in);
 
 
-	while (TRUE) { // Run forever
-		// Wait for a client to connect
-		FD_ZERO(&readfds);
-
-		//add master socket to set
-        FD_SET(master_socket, &readfds);
-        max_sd = master_socket;	
-
-
-		//add child sockets to set
-        for ( i = 0 ; i < max_clients ; i++) {
-            //socket descriptor
-            sd = client_socket[i];
-             
-            //if valid socket descriptor then add to read list
-            if(sd > 0) {
-                FD_SET( sd , &readfds);
-			}
-            //highest file descriptor number, need it for the select function
-            if(sd > max_sd) {
-                max_sd = sd;
-			}
-        }
-
-		//wait for an activity on one of the sockets , timeout is NULL , so wait indefinitely
-        activity = select( max_sd + 1 , &readfds , NULL , NULL , NULL);
-		if ((activity < 0) && (errno!=EINTR)) {
-            printf("select error");
-        }
-
-		//If something happened on the master socket , then its an incoming connection
-        if (FD_ISSET(master_socket, &readfds)) {
-            if ((new_socket = acceptTCPConnection(master_socket)) < 0) {
-                perror("accept");
-                exit(EXIT_FAILURE);
-            }
-          
-            
-            //send new connection greeting message
-            
-			/*			POR AHORA NO, TENEMOS QUE VER COMO LO CONTEMPLAMOS EN EL CLIENTE
-			if( send(new_socket, message, strlen(message), 0) != strlen(message) ) {
-                perror("send");
-            }
-              
-            log(INFO,"Welcome message sent successfully");
-            */  
-
-
-            //add new socket to array of sockets
-            for (i = 0; i < max_clients; i++) {
-                //if position is empty
-                if( client_socket[i] == 0 ) {
-                    client_socket[i] = new_socket;
-                    log(INFO,"Adding to list of sockets as %d\n" , i);
-                     
-                    break;
-                }
-            }
-        }
-
-		//else its some IO operation on some other socket :)
-        for (i = 0; i < max_clients; i++) 
-        {
-            sd = client_socket[i];
-              
-            if (FD_ISSET( sd , &readfds)) 
-            {
-                if(handleTCPEchoClient(sd) == 0){
-					log(INFO,"client number %d was closed\n" , i);
-					close(sd);
-					client_socket[i] = 0;
-				}
-            }
+	while (!ended) { // Run forever
+		err_msg = NULL;
+        ss = selector_select(selector);
+        if (ss != SELECTOR_SUCCESS) {
+            err_msg = "serving";
+            goto finally;
         }
 	}
     finally:
+    if (ss != SELECTOR_SUCCESS) {
+        fprintf(stderr, "%s: %s\n", (err_msg == NULL) ? "" : err_msg,
+                ss == SELECTOR_IO
+                    ? strerror(errno)
+                    : selector_error(ss));
+        ret = 2;
+    } else if (err_msg) {
+        perror(err_msg);
+        ret = 1;
+    }
+    if (selector != NULL) {
+        selector_destroy(selector);
+    }
+    selector_close();
+    close(master_socket);
+    return ret;
 }

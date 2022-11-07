@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
 		// Receive the same string back from the server
 		unsigned int totalBytesRcvd = 0; 	// Count of total bytes received
 		log(INFO, "Received: ")     		// Setup to print the echoed string
-		while (totalBytesRcvd < echoStringLen && numBytes >=0) {
+		while (totalBytesRcvd < echoStringLen && numBytes >0) {
 			char buffer[BUFSIZE]; 
 			
 			/* Receive up to the buffer size (minus 1 to leave space for a null terminator) bytes from the sender */
@@ -65,6 +65,7 @@ int main(int argc, char *argv[]) {
 				log(ERROR, "recv() failed")
 			} else if (numBytes == 0) {
 				log(ERROR, "recv() connection closed prematurely")
+				goto finally;
 			} else {
 				totalBytesRcvd += numBytes; // Keep tally of total bytes
 				buffer[numBytes] = '\0';    // Terminate the string!
@@ -73,6 +74,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 		
+	finally:
 	free(echoString);
 	close(sock);
 	return 0;

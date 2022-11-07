@@ -228,9 +228,5 @@ int handleTCPEchoClient(int clntSocket) {
 	return 1;
 }
 
-static void
-sigterm_handler(const int signal) {
-    printf("signal %d, cleaning up and exiting\n",signal);
-    //done = true;
-}
+
 
