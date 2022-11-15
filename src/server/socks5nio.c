@@ -164,6 +164,22 @@ struct hello_st {
     uint8_t               method;
 } ;
 
+/** usado por AUTH_READ y AUTH_WRITE */
+struct auth_st {
+    /** buffer utilizado para I/O */
+    buffer                     *rb, *wb;
+
+    /** parser */
+    struct auth                auth;
+    struct auth_parser         parser;
+
+    /** el resumen de la respuesta a enviar */
+    enum auth_response_status  status;
+
+    /** referencia al campo de struct socks5 */
+    char                       *uname;
+};
+
 struct request_st {
     /** buffer utilizado para I/O */
     buffer                      *rb, *wb;
@@ -230,6 +246,7 @@ struct socks5 {
     /** estados para el client_fd */
     union {
         struct hello_st           hello;
+        struct auth_st            auth;
         struct request_st         request;
         struct copy               copy;
     } client;
@@ -258,6 +275,7 @@ static struct socks5    *pool = 0;     // pool propiamente dicho
 bool is_auth_on = true;
 size_t registered_users = 0;
 
+bool is_disector_on = true;
 
 static const struct state_definition * socks5_describe_states(void);
 
@@ -401,7 +419,6 @@ fail:
 ////////////////////////////////////////////////////////////////////////////////
 // HELLO
 ////////////////////////////////////////////////////////////////////////////////
-bool is_auth_on = true;
 
 /** callback del parser utilizado en `read_hello' */
 static void
@@ -512,6 +529,18 @@ hello_write(struct selector_key *key) { // key corresponde a un client_fd
     return ret;
 }
 
+////////////
+// AUTH
+/////////// 
+
+struct user {
+    char    uname[0xff];    // null terminated
+    char    passwd[0xff];   // null terminated
+};
+
+struct user users[MAX_USERS];
+
+
 static void
 auth_init(const unsigned state, struct selector_key *key) {
     struct auth_st *d       = &ATTACHMENT(key)->client.auth;
@@ -587,16 +616,28 @@ auth_write(struct selector_key *key) {
     return ret;
 }
 
-////////////
-// AUTH
-/////////// 
+static unsigned
+auth_process(struct selector_key *key, struct auth_st *d) {
+    bool authenticated = false;
+    
+    for (size_t i = 0; i < registered_users; i++) {
+        if (strncmp(d->auth.uname, users[i].uname, 0xff) == 0 &&
+            strncmp(d->auth.passwd, users[i].passwd, 0xff) == 0) {
+            // sets client uname in struct socks5
+            ATTACHMENT(key)->client_uname = users[i].uname;
+            authenticated = true;
+            break;
+        }
+    }
+    d->status = authenticated ? auth_status_succeeded : auth_status_failure;
 
-struct user {
-    char    uname[0xff];    // null terminated
-    char    passwd[0xff];   // null terminated
-};
+    if (-1 == auth_marshall(d->wb, d->status))
+        abort();
 
-struct user users[MAX_USERS];
+    return AUTH_WRITE;
+}
+
+
 
 int socksv5_register_user(char *uname, char *passwd) {
     if (registered_users >= MAX_USERS)
@@ -623,7 +664,7 @@ static const struct state_definition client_statbl[] = {
         .state            = HELLO_READ,
         .on_arrival       = hello_read_init,
         .on_departure     = hello_read_close,
-        .on_read_ready    = hello_re    ad,
+        .on_read_ready    = hello_read,
     },
     {
         .state            = HELLO_WRITE,

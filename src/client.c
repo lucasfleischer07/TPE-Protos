@@ -74,7 +74,6 @@ int main(int argc, char *argv[]) {
 		}*/
 	}
 		
-	finally:
 	free(echoString);
 	close(sock);
 	return 0;

@@ -41,10 +41,10 @@ int main(int argc, char *argv[]) {
     close(0);
 
 
-    struct in_addr server_ipv4_addr, monitor_ipv4_addr;
+    struct in_addr server_ipv4_addr;
     int server_v4 = FD_UNUSED;
 
-    struct in6_addr server_ipv6_addr, monitor_ipv6_addr;
+    struct in6_addr server_ipv6_addr;
     int server_v6 = FD_UNUSED;
 
     //Para menejar la finalizacion del servidor, con CNTRL+c salte la sigterm_handler
@@ -143,8 +143,9 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Maximum number of users reached\n");
     }
 
-    if (!args.disectors_enabled)
+    if (!args.disectors_enabled){
         socksv5_toggle_disector(false);
+    }
 
 
 	while (!ended) { // Run hasta que salte la sigterm

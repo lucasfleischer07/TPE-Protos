@@ -1,6 +1,6 @@
 #include <string.h> //memset
 
-#include "../include/auth.h"
+#include "auth.h"
 
 static void
 remaining_set(struct auth_parser *p, int len) {
