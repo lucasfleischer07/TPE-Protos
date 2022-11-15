@@ -21,7 +21,7 @@
 #include "netutils.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
-
+#define RAW_BUFFER_SIZE 1024
 
 /** maquina de estados general */
 enum socks_v5state {
@@ -163,7 +163,36 @@ struct hello_st {
     uint8_t               method;
 } ;
 
-â€¦
+struct request_st {
+    /** buffer utilizado para I/O */
+    buffer                      *rb, *wb;
+
+    /** parser */
+    struct request              request;
+    struct request_parser       parser;
+
+    /** el resumen de la respuesta a enviar */
+    enum socks_response_status  status;
+
+    // referencian a los campos de struct socks5
+    struct sockaddr_storage     *origin_addr;
+    socklen_t                   *origin_addr_len;
+    int                         *origin_domain;
+
+    const int                   *client_fd;
+    int                         *origin_fd;
+};
+
+/** usado por COPY */
+struct copy {
+    /** el file descriptor propio (client.copy tiene client_fd y lo mismo orig) */
+    int         *fd;
+    /** el buffer que se utiliza para hacer la copia */
+    buffer      *rb, *wb;
+    // seria como el "intereses" de este extremo del copy, teniendo prendidos 1 o varios de los bits de OP_READ, OP_WRITE y OP_NOOP. Sirve para cerrar la escritura o la lectura.
+    fd_interest duplex;
+    struct copy *other; // el otro extremo del copy
+};
 
 /*
  * Si bien cada estado tiene su propio struct que le da un alcance
@@ -204,13 +233,68 @@ struct socks5 {
         struct copy               copy;
     } client;
     /** estados para el origin_fd */
-    union {
+    /*union {
         struct connecting         conn;
         struct copy               copy;
-    } orig;
-â€¦
+    } orig;*/
+
+    /** cantidad de referencias a este objeto. si es 1 se debe destruir. */
+    unsigned references;
+
+    //los raw_buff son los arreglos utilizados por los buffers, los buffers se encargan del manejo de 
+    //indice de escritura,lectura y resets necesarios. Estos se van a usar en todos los estados
+    uint8_t raw_buff_a[RAW_BUFFER_SIZE], raw_buff_b[RAW_BUFFER_SIZE];
+    buffer read_buffer, write_buffer;
+
+    struct socks5 *next; // siguiente socks5 en la pool
 };
 
+/** Pool de structs socks5 para ser reusados */
+static const unsigned   max_pool = 50; // tamaño max
+static unsigned         pool_size = 0; // tamaño actual
+static struct socks5    *pool = 0;     // pool propiamente dicho
+
+static const struct state_definition * socks5_describe_states(void);
+
+///////////////////////////////////////////////////////////////////////////////
+// Handlers top level de la conexiÃ³n pasiva.
+// son los que emiten los eventos a la maquina de estados.
+static void socksv5_done(struct selector_key* key);
+
+
+static struct socks5 *socks5_new(int client_fd) {
+    struct socks5 *ret;
+
+    if (pool == NULL) {
+        ret = malloc(sizeof(*ret));
+    } else {
+        ret = pool;
+        pool = pool->next;
+        ret->next = 0; // lo sacamos de la pool para retornarlo y usarlo
+    }
+
+    if (ret == NULL)
+        goto finally;
+    
+    memset(ret, 0x00, sizeof(*ret)); // inicializamos en 0 todo
+
+    ret->origin_fd = -1;
+    ret->client_fd = client_fd;
+    ret->client_addr_len = sizeof(ret->client_addr);
+
+    ret->stm.initial = HELLO_READ;
+    ret->stm.max_state = ERROR;
+    ret->stm.states = socks5_describe_states();
+    stm_init(&ret->stm);
+
+    buffer_init(&ret->read_buffer, N(ret->raw_buff_a), ret->raw_buff_a);
+    buffer_init(&ret->write_buffer, N(ret->raw_buff_b), ret->raw_buff_b);
+
+    ret->references = 1;
+
+finally:
+    return ret;
+}
 
 /** realmente destruye */
 static void
@@ -317,7 +401,7 @@ static void
 on_hello_method(struct hello_parser *p, const uint8_t method) {
     uint8_t *selected  = p->data;
 
-    if(SOCKS_HELLO_NOAUTHENTICATION_REQUIRED == method) {
+    if(SOCKS_HELLO_NO_AUTHENTICATION_REQUIRED == method) {
        *selected = method;
     }
 }
@@ -332,6 +416,13 @@ hello_read_init(const unsigned state, struct selector_key *key) {
     d->parser.data                     = &d->method;
     d->parser.on_authentication_method = on_hello_method, hello_parser_init(
             &d->parser);
+}
+
+/** libera los recursos al salir de HELLO_READ */
+static void
+hello_read_close(const unsigned state, struct selector_key *key) {
+    struct hello_st *d = &ATTACHMENT(key)->client.hello;
+    hello_parser_close(&d->parser);
 }
 
 static unsigned
@@ -382,6 +473,36 @@ hello_process(const struct hello_st* d) {
     return ret;
 }
 
+static unsigned
+hello_write(struct selector_key *key) { // key corresponde a un client_fd
+    struct hello_st *d = &ATTACHMENT(key)->client.hello;
+
+    unsigned ret       = HELLO_WRITE;
+    uint8_t  *ptr;
+    size_t   count;
+    ssize_t  n;
+    
+    ptr = buffer_read_ptr(d->wb, &count);
+    // esto deberia llamarse cuando el select lo despierta y sabe que se puede escribir al menos 1 byte, por eso no checkeamos el EWOULDBLOCK
+    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
+    if (n == -1) {
+        ret = ERROR;
+    } else {
+        buffer_read_adv(d->wb, n);
+        // si terminamos de mandar toda la response del HELLO, hacemos transicion HELLO_WRITE -> AUTH_READ o HELLO_WRITE -> REQUEST_READ
+        if (!buffer_can_read(d->wb)) {
+            if (SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
+                // en caso de que haya fallado el handshake del hello, el cliente es el que cerrara la conexion
+                ret = REQUEST_READ;
+            } else {
+                ret = ERROR;
+            }
+        }
+    }
+
+    return ret;
+}
+
 /** definiciÃ³n de handlers para cada estado */
 static const struct state_definition client_statbl[] = {
     {
@@ -390,13 +511,13 @@ static const struct state_definition client_statbl[] = {
         .on_departure     = hello_read_close,
         .on_read_ready    = hello_read,
     },
-â€¦
+    {
+        .state            = HELLO_WRITE,
+        .on_write_ready   = hello_write,
+    },
+};
 
-///////////////////////////////////////////////////////////////////////////////
-// Handlers top level de la conexiÃ³n pasiva.
-// son los que emiten los eventos a la maquina de estados.
-static void
-socksv5_done(struct selector_key* key);
+
 
 static void
 socksv5_read(struct selector_key *key) {
@@ -447,4 +568,8 @@ socksv5_done(struct selector_key* key) {
             close(fds[i]);
         }
     }
+}
+
+static const struct state_definition * socks5_describe_states(void){
+    return client_statbl;
 }

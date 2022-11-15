@@ -13,8 +13,8 @@
 #include "tcpServerUtil.h"
 #include "signal.h"
 #include "selector.h"
-#include "clientSock.h"
 #include "socks5nio.h"
+#include "args.h"
 
 static bool ended = false;
 
@@ -24,28 +24,36 @@ sigterm_handler(const int signal) {
     ended = true;
 }
 
-
+static const int FD_UNUSED = -1;
+#define IS_FD_USED(fd) ((FD_UNUSED != fd))
 
 int main(int argc, char *argv[]) {
-	int master_socket , addrlen ;
-    fd_selector selector      = NULL;
+    
     int ret = 0;
-    selector_status ss = SELECTOR_SUCCESS;
-    const char* err_msg = NULL;
-	//a message
-	fd_set readfds;
+    fd_selector selector      = NULL;
+    selector_status ss        = SELECTOR_SUCCESS;
+    const char* err_msg       = NULL;
 
-	char * servPort = argv[1];
+    struct socks5args args;
+    parse_args(argc, argv, &args);
+
+    // Cierro la entrada standard ya que no es utilizada
+    close(0);
+
 
     struct in_addr server_ipv4_addr, monitor_ipv4_addr;
-    int server_v4 = FD_UNUSED, monitor_v4 = FD_UNUSED;
+    int server_v4 = FD_UNUSED;
 
     struct in6_addr server_ipv6_addr, monitor_ipv6_addr;
-    int server_v6 = FD_UNUSED, monitor_v6 = FD_UNUSED;
+    int server_v6 = FD_UNUSED;
+
+    //Para menejar la finalizacion del servidor, con CNTRL+c salte la sigterm_handler
+    signal(SIGTERM, sigterm_handler);
+    signal(SIGINT,  sigterm_handler);
 
     // sockets pasivos de IPV4 y IPv6 
     if(inet_pton(AF_INET, args.socks_addr, &server_ipv4_addr) == 1){       // if parsing to ipv4 succeded
-        server_v4 = bind_ipv4_socket(server_ipv4_addr, args.socks_port);
+        server_v4 = ipv4_socket_binder(server_ipv4_addr, args.socks_port);
         if (server_v4 < 0) {
             err_msg = "creation of socket IPV4 failed";
             goto finally;
@@ -53,10 +61,10 @@ int main(int argc, char *argv[]) {
         fprintf(stdout, "Socks: listening on IPv4 TCP port %d\n", args.socks_port);
     }
 
-    char* ipv6_addr_text = args.is_default_socks_addr ? DEFAULT_SOCKS_ADDR_V6 : args.socks_addr;
+    char* ipv6_addr_text = args.is_default_socks_addr ? DEFAULT_SOCKET_ADDR_V6 : args.socks_addr;
 
     if((!IS_FD_USED(server_v4) || args.is_default_socks_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &server_ipv6_addr) == 1)){
-        server_v6 = bind_ipv6_socket(server_ipv6_addr, args.socks_port);
+        server_v6 = ipv6_socket_binder(server_ipv6_addr, args.socks_port);
         if (server_v6 < 0) {
             err_msg = "creation of socket IPV6 failed";
             goto finally;
@@ -125,7 +133,6 @@ int main(int argc, char *argv[]) {
         err_msg = "registering fd";
         goto finally;
     }
-	addrlen = sizeof(struct sockaddr_in);
 
 
 	while (!ended) { // Run hasta que salte la sigterm

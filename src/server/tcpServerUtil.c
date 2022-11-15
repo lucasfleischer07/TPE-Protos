@@ -8,13 +8,8 @@
 #include "util.h"
 #include "tcpServerUtil.h"
 #include "selector.h"
-#include "clientSock.h"
 
-#define MAXPENDING 5 // Maximum outstanding connection requests
-#define BUFSIZE 256
-#define MAX_ADDR_BUFFER 128
 
-static char addrBuffer[MAX_ADDR_BUFFER];
 
 
 
