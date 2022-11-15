@@ -20,6 +20,7 @@
 #include "socks5nio.h"
 #include "netutils.h"
 #include "auth.h"
+#include "disector.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 #define RAW_BUFFER_SIZE 1024
@@ -211,6 +212,15 @@ struct copy {
     struct copy *other; // el otro extremo del copy
 };
 
+/** usado por REQUEST_CONNECTING */
+struct connecting {
+    buffer   *wb;
+    int      *origin_fd;
+    int      *client_fd;
+    enum socks_response_status *status;
+};
+
+
 /*
  * Si bien cada estado tiene su propio struct que le da un alcance
  * acotado, disponemos de la siguiente estructura para hacer una Ãºnica
@@ -243,6 +253,9 @@ struct socks5 {
     /** maquinas de estados */
     struct state_machine          stm;
 
+    /** disector para el uso de pop3*/
+    struct disector_parser        dp;
+
     /** estados para el client_fd */
     union {
         struct hello_st           hello;
@@ -251,10 +264,10 @@ struct socks5 {
         struct copy               copy;
     } client;
     /** estados para el origin_fd */
-    /*union {
+    union {
         struct connecting         conn;
         struct copy               copy;
-    } orig;*/
+    } orig;
 
     /** cantidad de referencias a este objeto. si es 1 se debe destruir. */
     unsigned references;
@@ -266,6 +279,12 @@ struct socks5 {
 
     struct socks5 *next; // siguiente socks5 en la pool
 };
+
+/** Estadisticas del servidor proxy*/
+uint32_t historic_connections = 0;
+uint32_t current_connections  = 0;
+uint32_t bytes_transferred    = 0;
+
 
 /** Pool de structs socks5 para ser reusados */
 static const unsigned   max_pool = 50; // tamaño max
@@ -530,6 +549,14 @@ hello_write(struct selector_key *key) { // key corresponde a un client_fd
 }
 
 ////////////
+//  REQUEST
+////////////
+void log_request(enum socks_response_status status, const char *uname, struct request *request, const struct sockaddr *clientaddr, const struct sockaddr* originaddr);
+
+
+
+
+////////////
 // AUTH
 /////////// 
 
@@ -658,6 +685,150 @@ void socksv5_toggle_disector(bool to) {
     is_disector_on = to;
 }
 
+////////////
+// COPY
+/////////// 
+void log_credentials(const char *user, const char *pass, const char *uname, enum socks_addr_type addr_type, union socks_addr *addr, const struct sockaddr* originaddr);
+
+
+
+/** Inicializa  el campo de copy en la union de client*/
+static void copy_init(const unsigned state, struct selector_key *key) {
+    struct copy *d = &ATTACHMENT(key)->client.copy;
+    d->fd          = &ATTACHMENT(key)->client_fd;
+    d->rb          = &ATTACHMENT(key)->read_buffer;
+    d->wb          = &ATTACHMENT(key)->write_buffer;
+    d->duplex      = OP_READ | OP_WRITE;
+    d->other       = &ATTACHMENT(key)->orig.copy;
+
+    d              = &ATTACHMENT(key)->orig.copy;
+    d->fd          = &ATTACHMENT(key)->origin_fd;
+    d->rb          = &ATTACHMENT(key)->write_buffer;
+    d->wb          = &ATTACHMENT(key)->read_buffer;
+    d->duplex      = OP_READ | OP_WRITE;
+    d->other       = &ATTACHMENT(key)->client.copy;
+
+    // init disector
+    disector_parser_init(&ATTACHMENT(key)->dp);
+}
+
+/** actualiza los intereses en el selector segun el estado del copy */
+static fd_interest
+copy_compute_interests(fd_selector s, struct copy *d) {
+    fd_interest ret = OP_NOOP;
+    if ((d->duplex & OP_READ) && buffer_can_write(d->rb))
+        ret |= OP_READ;
+    if ((d->duplex & OP_WRITE) && buffer_can_read(d->wb))
+        ret |= OP_WRITE;
+    if (SELECTOR_SUCCESS != selector_set_interest(s, *d->fd, ret))
+        abort();
+    return ret;
+}
+
+/** dependiendo del caso, devuelve la estrucutura correspondiente (client.copy o orig.copy) */
+static struct copy *
+copy_ptr(struct selector_key *key) {
+    // agarramos cualquiera de los extremos del copy
+    struct copy *d = &ATTACHMENT(key)->client.copy;
+
+    if (*d->fd == key->fd) {
+        return d;
+    }
+    else {
+        d = d->other; // agarramos el equivocado, retornamos el otro
+    }
+    return d;
+}
+
+/** lee bytes de un socket y los encola para ser escritos en otro socket */
+static unsigned copy_r(struct selector_key *key) {
+    struct copy *d = copy_ptr(key);
+
+    assert(*d->fd == key->fd);
+
+    size_t size;
+    ssize_t n;
+    buffer *b   = d->rb;
+    unsigned ret = COPY;
+
+    uint8_t *ptr = buffer_write_ptr(b, &size);
+    n = recv(key->fd, ptr, size, 0);
+    if (n <= 0) {
+        shutdown(*d->fd, SHUT_RD); // no leeremos mas de ahi
+        d->duplex &= ~OP_READ;
+        if (*d->other->fd != -1) {
+            shutdown(*d->other->fd, SHUT_WR);
+            d->other->duplex &= ~OP_WRITE;
+        }
+    } else {
+        buffer_write_adv(b, n);
+    }
+
+    copy_compute_interests(key->s, d);
+    copy_compute_interests(key->s, d->other);
+
+    if (d->duplex == OP_NOOP) {
+        ret = DONE;
+        current_connections -= 1;
+    }
+
+    return ret;
+}
+
+/** escribe bytes ya encolados previamente */
+static unsigned copy_w(struct selector_key *key) {
+    struct copy *d = copy_ptr(key);
+    assert(*d->fd == key->fd);
+
+    struct disector_parser *dp = &ATTACHMENT(key)->dp;
+
+    size_t size;
+    ssize_t n;
+    buffer *b = d->wb;
+    unsigned ret = COPY;
+
+    uint8_t *ptr = buffer_read_ptr(b, &size);
+    n = send(key->fd, ptr, size, MSG_NOSIGNAL);
+    if (n == -1) {
+        shutdown(*d->fd, SHUT_WR);
+        d->duplex &= ~OP_WRITE;
+        if (*d->other->fd != -1) {
+            shutdown(*d->other->fd, SHUT_RD);
+            d->other->duplex &= ~OP_READ;
+        }
+    } else {
+        // si estamos esperando el usuario y pass, miramos lo que escribe cliente sobre origin, y si estamos esperando la response o que se inicie una conexion POP3, al reves
+        if (is_disector_on && dp->state != disector_incompatible
+        && ((dp->state < disector_response && dp->state >= disector_user && key->fd == ATTACHMENT(key)->origin_fd)
+        || ((dp->state == disector_response || dp->state == disector_wait_pop) && key->fd == ATTACHMENT(key)->client_fd))) {
+            const enum disector_state st = disector_consume(dp, ptr, n);
+            if (st == disector_done) {
+                log_credentials(dp->disector.user,
+                    dp->disector.pass,
+                    ATTACHMENT(key)->client_uname,
+                    ATTACHMENT(key)->dest_addr_type,
+                    &ATTACHMENT(key)->dest_addr,
+                    (const struct sockaddr *) &ATTACHMENT(key)->origin_addr
+                );
+                disector_parser_reset(dp);
+            }
+        }
+        buffer_read_adv(b, n);
+        bytes_transferred += n;
+    }
+
+    copy_compute_interests(key->s, d);
+    copy_compute_interests(key->s, d->other);
+
+    if (d->duplex == OP_NOOP) {
+        ret = DONE;
+        current_connections -= 1;
+    }
+
+    return ret;
+}
+
+
 /** definiciÃ³n de handlers para cada estado */
 static const struct state_definition client_statbl[] = {
     {
@@ -679,6 +850,18 @@ static const struct state_definition client_statbl[] = {
         .state            = AUTH_WRITE,
         .on_write_ready   = auth_write,
     },
+    {
+        .state            = COPY,
+        .on_arrival       = copy_init,
+        .on_read_ready    = copy_r,
+        .on_write_ready   = copy_w,
+    },
+    {
+        .state            = DONE,
+    },
+    {
+        .state            = ERROR,
+    }
 };
 
 
@@ -735,4 +918,92 @@ socksv5_done(struct selector_key* key) {
 
 static const struct state_definition * socks5_describe_states(void){
     return client_statbl;
+}
+
+
+// ISO-8601 date, obtengo el date segun Epoch, lo paso a buf y lo printeo con el offset de la zona
+static void log_current_local_date(char *buf) {
+    time_t rawtime;
+    struct tm *ptm;
+    if ((rawtime = time(NULL)) != -1 && (ptm = localtime(&rawtime)) != NULL) {
+        if (strftime(buf, 50, "%FT%T", ptm) > 0) {
+            printf("%s", buf);
+            printf("%s", ptm->tm_zone); //indica el offset local con respecto a UTC
+        }
+        else
+            printf("<date error>");
+    } else {
+        printf("<date error>");
+    }
+}
+
+// IP/FQDN y puerto origin server (destino)
+static void log_destination(char *buf, const struct sockaddr* originaddr, enum socks_addr_type addr_type, union socks_addr *addr) {
+    if (addr_type == socks_req_addrtype_domain) {
+        in_port_t port = originaddr->sa_family == AF_INET ? ((struct sockaddr_in *) originaddr)->sin_port : ((struct sockaddr_in6 *) originaddr)->sin6_port;
+        printf("%s\t%d", addr->fqdn, ntohs(port));
+    } else {
+        sockaddr_to_human(buf, 50, originaddr);
+        printf("%s", buf);
+    }
+}
+
+/** Registra  el  uso  del  proxy en salida estandar. Una conexión por línea. Los campos de una línea separado por tabs. */
+void log_request(enum socks_response_status status, const char *uname, struct request *request, const struct sockaddr *clientaddr, const struct sockaddr* originaddr) {
+    char buf[50];
+    
+    log_current_local_date(buf);
+    putchar('\t');
+
+    // username del cliente
+    printf("%s", is_auth_on ? uname : "<anonymous>");
+    putchar('\t');
+
+    // tipo de registro
+    putchar('A');
+    putchar('\t');
+
+    // IP y puerto cliente
+    sockaddr_to_human(buf, 50, clientaddr);
+    printf("%s", buf);
+    putchar('\t');
+
+    // IP/FQDN destino
+    log_destination(buf, originaddr, request->dest_addr_type, &request->dest_addr);
+    putchar('\t');
+
+    // status code socks5
+    printf("%d", status);
+    putchar('\n');
+}
+
+void log_credentials(const char *user, const char *pass, const char *uname, enum socks_addr_type addr_type, union socks_addr *addr, const struct sockaddr* originaddr) {
+    char buf[50];
+
+    log_current_local_date(buf);
+    putchar('\t');
+
+    // username del cliente
+    printf("%s", is_auth_on ? uname : "<anonymous>");
+    putchar('\t');
+
+    // tipo de registro
+    putchar('P');
+    putchar('\t');
+
+    // protocolo sniffeado
+    printf("POP3");
+    putchar('\t');
+
+    // IP/FQDN destino
+    log_destination(buf, originaddr, addr_type, addr);
+    putchar('\t');
+
+    // usuario descubierto
+    printf("%s", user);
+    putchar('\t');
+
+    // contraseña descubierta
+    printf("%s", pass);
+    putchar('\n');
 }
