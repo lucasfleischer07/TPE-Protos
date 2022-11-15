@@ -134,6 +134,18 @@ int main(int argc, char *argv[]) {
         goto finally;
     }
 
+    // Se registran los usuarios del proxy
+    for (int i = 0; i < MAX_USERS && args.users[i].name != NULL; i++) {
+        int register_status = socksv5_register_user(args.users[i].name, args.users[i].pass);
+        if (register_status == -1)
+            fprintf(stderr, "User already exists: %s\n", args.users[i].name);
+        else if (register_status == 1)
+            fprintf(stderr, "Maximum number of users reached\n");
+    }
+
+    if (!args.disectors_enabled)
+        socksv5_toggle_disector(false);
+
 
 	while (!ended) { // Run hasta que salte la sigterm
 		err_msg = NULL;

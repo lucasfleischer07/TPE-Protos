@@ -14,4 +14,10 @@ void socksv5_passive_accept(struct selector_key *key);
 /** libera pools internos */
 void socksv5_pool_destroy(void);
 
+/** registra usuarios nuevos */
+int socksv5_register_user(char *uname, char *passwd);
+
+/** activa o desactiva el disector */
+void socksv5_toggle_disector(bool to);
+
 #endif
