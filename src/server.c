@@ -30,59 +30,93 @@ int main(int argc, char *argv[]) {
     selector_status ss = SELECTOR_SUCCESS;
     const char* err_msg = NULL;
 	//a message
-    char *message = "Welocme to ECHO \r\n";
 	fd_set readfds;
-	if (argc != 2) {
-		log(FATAL, "usage: %s <Server Port>", argv[0]);
-	}
 
 	char * servPort = argv[1];
 
-	master_socket = setupTCPServerSocket(servPort);
-	if (master_socket < 0){
-		return 1;
-	}
+    struct in_addr server_ipv4_addr, monitor_ipv4_addr;
+    int server_v4 = FD_UNUSED, monitor_v4 = FD_UNUSED;
 
-    // registrar sigterm es útil para terminar el programa normalmente.
-    // esto ayuda mucho en herramientas como valgrind.
-    signal(SIGTERM, sigterm_handler);
-    signal(SIGINT, sigterm_handler);
+    struct in6_addr server_ipv6_addr, monitor_ipv6_addr;
+    int server_v6 = FD_UNUSED, monitor_v6 = FD_UNUSED;
 
+    // sockets pasivos de IPV4 y IPv6 
+    if(inet_pton(AF_INET, args.socks_addr, &server_ipv4_addr) == 1){       // if parsing to ipv4 succeded
+        server_v4 = bind_ipv4_socket(server_ipv4_addr, args.socks_port);
+        if (server_v4 < 0) {
+            err_msg = "creation of socket IPV4 failed";
+            goto finally;
+        }
+        fprintf(stdout, "Socks: listening on IPv4 TCP port %d\n", args.socks_port);
+    }
 
-     // seteamos los sockets pasivos como no bloqueantes
-    if(selector_fd_set_nio(master_socket) == -1){
-        log(FATAL, "getting socks server ipv4 socket flags");
+    char* ipv6_addr_text = args.is_default_socks_addr ? DEFAULT_SOCKS_ADDR_V6 : args.socks_addr;
+
+    if((!IS_FD_USED(server_v4) || args.is_default_socks_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &server_ipv6_addr) == 1)){
+        server_v6 = bind_ipv6_socket(server_ipv6_addr, args.socks_port);
+        if (server_v6 < 0) {
+            err_msg = "creation of socket IPV6 failed";
+            goto finally;
+        }
+        fprintf(stdout, "Socks: listening on IPv6 TCP port %d\n", args.socks_port);
+    }
+
+    if(!IS_FD_USED(server_v4) && !IS_FD_USED(server_v6)) {
+        fprintf(stderr, "unable to parse socks server ip\n");
+        goto finally;
+    }
+
+    // seteamos los sockets pasivos como no bloqueantes
+    if(IS_FD_USED(server_v4) && (selector_fd_set_nio(server_v4) == -1)){
+        err_msg = "getting socks server ipv4 socket flags";
+        goto finally;
+    }
+
+    if(IS_FD_USED(server_v6) && (selector_fd_set_nio(server_v6) == -1)) {
+        err_msg = "getting socks server ipv6 socket flags";
         goto finally;
     }
 
     const struct selector_init conf = {
-        .signal = SIGALRM,
-        .select_timeout = {
-            .tv_sec = 10,
+        .signal = SIGALRM, // le doy una señal para que trabaje internamente el selector
+        .select_timeout = { // estructura para el tiempo maximo de bloqueo
+            .tv_sec  = 10,
             .tv_nsec = 0,
         },
     };
 
     if(0 != selector_init(&conf)) {
-        log(FATAL, "initializing selector");
-        //err_msg = "initializing selector";
+        err_msg = "initializing selector";
         goto finally;
     }
 
     selector = selector_new(1024); // initial elements
 
 	if(selector == NULL) {
-        log(FATAL, "unable to create selector");
+        err_msg = "unable to create selector";
         goto finally;
     }
 
     const struct fd_handler master_socket_handler = {
-        .handle_read       = master_socket_passive_accept,
+        .handle_read       = socksv5_passive_accept,
         .handle_write      = NULL,
         .handle_close      = NULL, // nada que liberar
     };
 
-    ss = selector_register(selector, master_socket, &master_socket_handler, OP_READ, NULL);
+     if(IS_FD_USED(server_v4)){
+        ss = selector_register(selector, server_v4, &master_socket_handler, OP_READ, NULL);
+        if(ss != SELECTOR_SUCCESS) {
+            err_msg = "registering IPv4 socks fd";
+            goto finally;
+        }
+    }
+    if(IS_FD_USED(server_v6)){
+        ss = selector_register(selector, server_v6, &master_socket_handler, OP_READ, NULL);
+        if(ss != SELECTOR_SUCCESS) {
+            err_msg = "registering IPv6 socks fd";
+            goto finally;
+        }
+    }
 
     if (ss != SELECTOR_SUCCESS) {
         err_msg = "registering fd";
