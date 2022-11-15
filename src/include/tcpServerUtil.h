@@ -5,18 +5,16 @@
 #include <sys/socket.h>
 
 
-// Create, bind, and listen a new TCP server socket
-int setupTCPServerSocket(const char *service);
+int socket_creator(sa_family_t family)
 
-// Accept a new TCP connection on a server socket
-int acceptTCPConnection(int servSock);
+int bind_socket(int server, struct sockaddr *address, socklen_t address_len)
 
-// Handle new TCP client
-int handleTCPEchoClient(int clntSocket);
+/** creates and binds an IPv4 socket */
+int ipv4_socket_binder(struct in_addr bind_address, unsigned port)
 
-// Makes the HTML request from the client
-int getRequestedHTML (char* domain);
+/** creates and binds an IPv6 socket */
+int ipv6_socket_binder(struct in6_addr bind_address, unsigned port);
 
-//static void sigterm_handler(const int signal);
+
 
 #endif 

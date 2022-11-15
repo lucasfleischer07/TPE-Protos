@@ -14,14 +14,17 @@
 #include "signal.h"
 #include "selector.h"
 #include "clientSock.h"
+#include "socks5nio.h"
 
 static bool ended = false;
 
 static void
 sigterm_handler(const int signal) {
-    printf("signal %d, cleaning up and exiting\n",signal);
+    printf("signal %d, closing everything and ending\n",signal);
     ended = true;
 }
+
+
 
 int main(int argc, char *argv[]) {
 	int master_socket , addrlen ;
@@ -125,7 +128,7 @@ int main(int argc, char *argv[]) {
 	addrlen = sizeof(struct sockaddr_in);
 
 
-	while (!ended) { // Run forever
+	while (!ended) { // Run hasta que salte la sigterm
 		err_msg = NULL;
         ss = selector_select(selector);
         if (ss != SELECTOR_SUCCESS) {
@@ -133,7 +136,12 @@ int main(int argc, char *argv[]) {
             goto finally;
         }
 	}
-    finally:
+
+    if(err_msg == NULL) {
+        err_msg = "closing without error";
+    }
+
+finally:
     if (ss != SELECTOR_SUCCESS) {
         fprintf(stderr, "%s: %s\n", (err_msg == NULL) ? "" : err_msg,
                 ss == SELECTOR_IO
@@ -148,6 +156,11 @@ int main(int argc, char *argv[]) {
         selector_destroy(selector);
     }
     selector_close();
-    close(master_socket);
+
+
+    if (server_v4 >= 0)
+        close(server_v4);
+    if(server_v6 >= 0)
+        close(server_v6);
     return ret;
 }

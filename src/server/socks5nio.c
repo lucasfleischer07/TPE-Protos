@@ -18,7 +18,7 @@
 
 #include "stm.h"
 #include "socks5nio.h"
-#include"netutils.h"
+#include "netutils.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -51,9 +51,102 @@ enum socks_v5state {
      */
     HELLO_WRITE,
 
-â€¦
+    /**
+     * recibe las credenciales (usuario y contraseña, segun RFC 1929) del cliente, e inicia su proceso
+     * 
+     * Intereses:
+     *     - OP_READ sobre client_fd
+     *
+     * Transiciones:
+     *   - AUTH_READ            mientras el mensaje no este completo
+     *   - AUTH_WRITE           cuando está completo
+     *   - ERROR                ante cualquier error (IO/parseo)
+    */
+    AUTH_READ,
 
-    // estados terminales
+    /**
+     * informa al cliente si la autenticación fue exitosa o no.
+     *
+     * Intereses:
+     *     - OP_WRITE sobre client_fd
+     *
+     * Transiciones:
+     *   - AUTH_WRITE   mientras queden bytes por enviar
+     *   - REQUEST_READ cuando se enviaron todos los bytes
+     *   - ERROR        ante cualquier error (IO/parseo)
+     */
+    AUTH_WRITE,
+
+    /**
+     * recibe el request del cliente, e inicia su proceso
+     * 
+     * Intereses:
+     *     - OP_READ sobre client_fd
+     *
+     * Transiciones:
+     *   - REQUEST_READ         mientras el mensaje no este completo
+     *   - REQUEST_RESOLV       si no requiere resolver un nombre DNS
+     *   - REQUEST_CONNECTING   si no requiere resolver DNS y podemos
+     *                          iniciar la conexion al origin server
+     *   - REQUEST_WRITE        si determinamos que el mensaje no lo 
+     *                          podemos procesar (ej: no soportamos el comando)
+     *   - ERROR                ante cualquier error (IO/parseo)
+    */
+    REQUEST_READ,
+
+    /**
+     * Espera la resolucion DNS
+     * 
+     * Intereses:
+     *     - OP_NOOP sobre client_fd. Espera un evento de que la tarea 
+     *       bloqueante haya terminado
+     *
+     * Transiciones:
+     *   - REQUEST_CONNECTING   si se logra resolucion del nombre y se puede iniciar la conexion al origin server
+     *   - REQUEST_WRITE        en otro caso
+    */
+    REQUEST_RESOLV,
+
+    /**
+     * Espera que se establezca la conexion al origin server
+     * 
+     * Intereses:
+     *     - OP_WRITE sobre origin_fd
+     *     - OP_NOOP sobre client_fd
+     *
+     * Transiciones:
+     *   - REQUEST_WRITE        se haya logrado o no establecer la conexion
+    */
+    REQUEST_CONNECTING,
+
+    /**
+     * envia la respuesta del request al cliente
+     * 
+     * Intereses:
+     *     - OP_WRITE sobre client_fd
+     *     - OP_NOOP sobre origin_fd
+     *
+     * Transiciones:
+     *   - REQUEST_WRITE    mientras quedan bytes por enviar
+     *   - COPY             si el request fue exitoso y tenemos que copiar
+     *                      el contenido de los fd
+     *   - ERROR            ante I/O error
+    */
+    REQUEST_WRITE,
+
+    /**
+     * copia bytes entre client_fd y origin_fd
+     * 
+     * Intereses: (tanto para client_fd como para origin_fd)
+     *     - OP_READ  si hay espacio libre para escribir en el buffer de lectura
+     *     - OP_WRITE si hay bytes para leer en el buffer de escritura
+     *
+     * Transiciones:
+     *   - DONE    cuando no queda nada mas por copiar
+    */
+    COPY,
+
+    // estados terminales, en ambos casos la maquina de estados llama a socksv5_done()
     DONE,
     ERROR,
 };
@@ -81,7 +174,26 @@ struct hello_st {
  * liberarlo finalmente, y un pool para reusar alocaciones previas.
  */
 struct socks5 {
-â€¦
+
+    /** informacion del cliente */
+    int                           client_fd;
+    struct sockaddr_storage       client_addr; // direccion IP
+    socklen_t                     client_addr_len; // tamaño de IP (v4 o v6)
+    char                          *client_uname;
+
+    /** resolucion DNS de la direc del origin server */
+    struct addrinfo               *origin_resolution;
+    /** intento actual de la direccion del origin server */
+    struct addrinfo               *origin_resolution_current;
+
+    /** informacion del origin server requerido por el cliente*/
+    int                           origin_fd;
+    struct sockaddr_storage       origin_addr;
+    socklen_t                     origin_addr_len;
+    int                           origin_domain;
+    enum    socks_addr_type       dest_addr_type;
+    union   socks_addr            dest_addr;
+
     /** maquinas de estados */
     struct state_machine          stm;
 
