@@ -738,6 +738,22 @@ finally:
     return REQUEST_CONNECTING;
 }
 
+/** Paso final del request, se llama cuando salte el on_block_ready del estado (cuando la consulta DNS traiga la respuesta). */
+static unsigned
+request_resolv_done(struct selector_key *key) {
+    struct request_st *d = &ATTACHMENT(key)->client.request;
+    struct socks5 *s     = ATTACHMENT(key);
+
+    if (s->origin_resolution == 0)
+        return request_error_write(key, d, status_host_unreachable);
+
+    s->origin_resolution_current = s->origin_resolution;
+    s->origin_domain = s->origin_resolution->ai_family;
+    s->origin_addr_len = s->origin_resolution->ai_addrlen;
+    memcpy(&s->origin_addr, s->origin_resolution->ai_addr, s->origin_resolution->ai_addrlen);
+    return request_connect(key, d);
+}
+
 // Se ejecuta en un hilo aparte,viene de  request_process()
 static void *
 request_resolv_blocking(void *data) {
@@ -1075,6 +1091,10 @@ static const struct state_definition client_statbl[] = {
         .on_arrival       = request_init,
         .on_departure     = request_read_close,
         .on_read_ready    = request_read,
+    },
+    {
+        .state            = REQUEST_RESOLV,
+        .on_block_ready   = request_resolv_done,
     },
     {
         .state            = COPY,
