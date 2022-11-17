@@ -553,9 +553,57 @@ hello_write(struct selector_key *key) { // key corresponde a un client_fd
 ////////////
 void log_request(enum socks_response_status status, const char *uname, struct request *request, const struct sockaddr *clientaddr, const struct sockaddr* originaddr);
 
+/** inicializa las variables de los estados REQUEST_ */
+static void
+request_init(const unsigned state, struct selector_key *key) {
+    struct request_st *d    = &ATTACHMENT(key)->client.request;
+
+    d->rb                   = &(ATTACHMENT(key)->read_buffer);
+    d->wb                   = &(ATTACHMENT(key)->write_buffer);
+    d->parser.request       = &d->request; // inicializa el parser parece
+    d->status               = status_general_SOCKS_server_failure;
+    request_parser_init(&d->parser);
+    d->client_fd            = &ATTACHMENT(key)->client_fd;
+    d->origin_fd            = &ATTACHMENT(key)->origin_fd;
+    d->origin_addr          = &ATTACHMENT(key)->origin_addr;
+    d->origin_addr_len      = &ATTACHMENT(key)->origin_addr_len;
+    d->origin_domain        = &ATTACHMENT(key)->origin_domain;
+}
 
 
 
+/** lee todos los bytes del mensaje de tipo 'request', una vez parseado correctamente
+ *  inicia su proceso correspondiente */
+static unsigned
+request_read(struct selector_key *key) {
+    struct request_st *d = &ATTACHMENT(key)->client.request;
+
+    buffer *b            = d->rb;
+    unsigned ret         = REQUEST_READ;
+    bool error           = false;
+    uint8_t *ptr;
+    size_t count;
+    ssize_t n;
+
+    ptr = buffer_write_ptr(b, &count);
+    n = recv(key->fd, ptr, count, 0);
+    if (n > 0) {
+        buffer_write_adv(b, n);
+        int st = request_consume(b, &d->parser, &error);
+        /*if (!error && request_is_done(st, NULL))
+            ret = request_process(key, d); TO DO*/
+    } else {
+        ret = ERROR;
+    }
+
+    return error ? ERROR : ret;
+}
+
+static void
+request_read_close(const unsigned state, struct selector_key *key) {
+    struct request_st *d = &ATTACHMENT(key)->client.request;
+    request_close(&d->parser);
+}
 ////////////
 // AUTH
 /////////// 
@@ -849,6 +897,12 @@ static const struct state_definition client_statbl[] = {
     {
         .state            = AUTH_WRITE,
         .on_write_ready   = auth_write,
+    },
+    {
+        .state            = REQUEST_READ,
+        .on_arrival       = request_init,
+        .on_departure     = request_read_close,
+        .on_read_ready    = request_read,
     },
     {
         .state            = COPY,
