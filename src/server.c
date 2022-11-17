@@ -148,7 +148,7 @@ int main(int argc, char *argv[]) {
     }
 
 
-	while (!ended) { // Run hasta que salte la sigterm
+	while (!ended) { //  Run hasta que salte la sigterm
 		err_msg = NULL;
         ss = selector_select(selector);
         if (ss != SELECTOR_SUCCESS) {

@@ -551,6 +551,9 @@ hello_write(struct selector_key *key) { // key corresponde a un client_fd
 ////////////
 //  REQUEST
 ////////////
+
+/////////////// REQUEST_READ y REQUEST_RESOLVE ///////////////////////////////////
+
 void log_request(enum socks_response_status status, const char *uname, struct request *request, const struct sockaddr *clientaddr, const struct sockaddr* originaddr);
 static unsigned request_process(struct selector_key *key, struct request_st *d);
 static unsigned request_connect(struct selector_key *key, struct request_st *d);
@@ -792,6 +795,64 @@ request_read_close(const unsigned state, struct selector_key *key) {
     struct request_st *d = &ATTACHMENT(key)->client.request;
     request_close(&d->parser);
 }
+
+///////////////////////////// REQUEST CONNECTING //////////////////////////////////////////
+
+static void
+request_connecting_init(const unsigned state, struct selector_key *key) {
+    struct connecting *d = &ATTACHMENT(key)->orig.conn;
+    d->client_fd = &ATTACHMENT(key)->client_fd;
+    d->origin_fd = &ATTACHMENT(key)->origin_fd;
+    d->status    = &ATTACHMENT(key)->client.request.status;
+    d->wb        = &ATTACHMENT(key)->write_buffer;
+}
+
+/** se establece coneccion y se pasa al estado COPY o falla y se pasa al estado DONE/ERROR */
+static unsigned
+request_connecting(struct selector_key *key) { // key es un origin_fd
+    int error;
+    socklen_t len = sizeof(error);
+    struct socks5 *s     = ATTACHMENT(key);
+    struct connecting *d = &s->orig.conn;
+
+    if (getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+        *d->status = status_general_SOCKS_server_failure;
+    } else {
+        if (error == 0) {
+            *d->status = status_succeeded;
+            *d->origin_fd = key->fd;
+        } else if (s->client.request.request.dest_addr_type == socks_req_addrtype_domain && s->origin_resolution_current->ai_next != NULL) {
+            s->origin_resolution_current = s->origin_resolution_current->ai_next;
+            s->origin_domain = s->origin_resolution_current->ai_family;
+            s->origin_addr_len = s->origin_resolution_current->ai_addrlen;
+            memcpy(&s->origin_addr, s->origin_resolution_current->ai_addr, s->origin_resolution_current->ai_addrlen);
+            request_connect(key, &s->client.request);
+            return REQUEST_CONNECTING;
+        } else {
+            *d->status = errno_to_socks(error);
+        }
+    }
+
+    if (s->client.request.request.dest_addr_type == socks_req_addrtype_domain) {
+        freeaddrinfo(s->origin_resolution);
+        s->origin_resolution = 0;
+        s->origin_resolution_current = 0;
+    }
+
+    if (-1 == request_marshall(s->client.request.wb, s->client.request.status)) {
+        s->client.request.status = status_general_SOCKS_server_failure;
+        abort();
+    }
+
+    selector_status ss = 0;
+    ss |= selector_set_interest(key->s, *d->client_fd, OP_WRITE);
+    ss |= selector_set_interest_key(key, OP_NOOP);
+
+    // dependiendo de ss el siguiente estado al que se va
+    return SELECTOR_SUCCESS == ss ? REQUEST_WRITE : ERROR;
+}
+
+
 ////////////
 // AUTH
 /////////// 
@@ -1095,6 +1156,11 @@ static const struct state_definition client_statbl[] = {
     {
         .state            = REQUEST_RESOLV,
         .on_block_ready   = request_resolv_done,
+    },
+    {
+        .state            = REQUEST_CONNECTING,
+        .on_arrival       = request_connecting_init,
+        .on_write_ready   = request_connecting,
     },
     {
         .state            = COPY,
