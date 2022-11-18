@@ -2,12 +2,12 @@
  * socks5nio.c  - controla el flujo de un proxy SOCKSv5 (sockets no bloqueantes)
  */
 #include<stdio.h>
-#include <stdlib.h>  // malloc
-#include <string.h>  // memset
-#include <assert.h>  // assert
+#include <stdlib.h>  
+#include <string.h>  
+#include <assert.h>  
 #include <errno.h>
 #include <time.h>
-#include <unistd.h>  // close
+#include <unistd.h>  
 #include <pthread.h>
 
 #include <arpa/inet.h>
@@ -852,6 +852,55 @@ request_connecting(struct selector_key *key) { // key es un origin_fd
     return SELECTOR_SUCCESS == ss ? REQUEST_WRITE : ERROR;
 }
 
+/** escribe todos los bytes de la respuesta al mensaje 'request' */
+static unsigned
+request_write(struct selector_key *key) {
+    struct request_st *d = &ATTACHMENT(key)->client.request;
+
+    unsigned ret = REQUEST_WRITE;
+    buffer *b    = d->wb;
+    uint8_t *ptr;
+    size_t count;
+    ssize_t n;
+
+    ptr = buffer_read_ptr(b, &count);
+    // si estamos aca es porque el select nos desperto y tiene que haber espacio para mandar al menos 1 byte (no puede bloquear)
+    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
+    if (n == -1) {
+        ret = ERROR;
+    } else {
+        buffer_read_adv(b, n);
+        if (!buffer_can_read(b)) {
+            if (d->status == status_succeeded) {
+                ret = COPY;
+                selector_set_interest(key->s, *d->client_fd, OP_READ);
+                selector_set_interest(key->s, *d->origin_fd, OP_READ);
+                // guardamos estos valores que necesitaremos luego para logear en la etapa posterior
+                memcpy(&ATTACHMENT(key)->dest_addr, &ATTACHMENT(key)->client.request.request.dest_addr, sizeof(union socks_addr));
+                ATTACHMENT(key)->dest_addr_type = ATTACHMENT(key)->client.request.request.dest_addr_type;
+                // aumentamos los stats del servidor
+                historic_connections += 1;
+                current_connections  += 1;
+            } else {
+                ret = ERROR;
+                selector_set_interest(key->s, *d->client_fd, OP_NOOP);
+                if (-1 != *d->origin_fd)
+                    selector_set_interest(key->s, *d->origin_fd, OP_NOOP);
+            }
+
+            log_request(
+                d->status,
+                ATTACHMENT(key)->client_uname,
+                &ATTACHMENT(key)->client.request.request,
+                (const struct sockaddr *) &ATTACHMENT(key)->client_addr,
+                (const struct sockaddr *) &ATTACHMENT(key)->origin_addr
+            );
+        }
+    }
+
+    return ret;
+}
+
 
 ////////////
 // AUTH
@@ -981,6 +1030,8 @@ int socksv5_register_user(char *uname, char *passwd) {
 void socksv5_toggle_disector(bool to) {
     is_disector_on = to;
 }
+
+
 
 ////////////
 // COPY
@@ -1161,6 +1212,10 @@ static const struct state_definition client_statbl[] = {
         .state            = REQUEST_CONNECTING,
         .on_arrival       = request_connecting_init,
         .on_write_ready   = request_connecting,
+    },
+    {
+        .state            = REQUEST_WRITE,
+        .on_write_ready   = request_write,
     },
     {
         .state            = COPY,
