@@ -5,11 +5,15 @@
 #include <stdbool.h>
 #include "buffer.h"
 
+//Tamaño de username y password segun la RFC 1929, deben tener un tamaño entre 1 y 255 bytes
+#define USERNAME_SIZE 256
+#define PASSWORD_SIZE 256
+
 /** Archivo encargado del manejo del protocolo, parseos y funciones*/
 /**
  * Request 
 
-   VER | USERNAME | MÉTODO | DLEN | DATA
+   VER | USER_TOKEN | MÉTODO | DLEN | DATA
     1       16        1       2      1 to 8191
 
     VER : Tiene el valor de la version del protocolo, debe ser --> X' 01'
@@ -32,6 +36,9 @@
 
     DATA : Campo con informacion extra que pueda requerirse para ejecutar algun metodo.
 */  
+
+#define TOKEN_SIZE 16
+
 
 enum monitor_state {            
     monitor_version,
@@ -74,5 +81,49 @@ enum monitor_method {
 };
 
 
+enum disector_data {
+    disector_off    = 0x00,
+    disector_on     = 0x01,
+};
+
+struct add_proxy_user {
+    char        user[USERNAME_SIZE];
+    char        pass[PASSWORD_SIZE]; 
+};
+
+struct add_admin_user {
+    char        user[USERNAME_SIZE];
+    char        token[TOKEN_SIZE];
+};
+
+//Solo Switch Disector y la creacion o destruccion de usuarios recibe DATA
+union data {
+    char                            user[USERNAME_SIZE]; // EL usuario a borrar
+    enum   disector_data     disector_data_params;
+    struct add_proxy_user    add_proxy_user_param;
+    struct add_admin_user    add_admin_user_param;
+};
+
+union data_len {
+        uint16_t len;
+        uint8_t byte[2];
+};
+
+struct monitor {
+    char                    token[TOKEN_SIZE];
+    enum  monitor_method    method;
+    uint16_t                dlen;
+    union data              data;
+};
+
+struct monitor_parser {
+    struct monitor *monitor;
+    enum monitor_state state;
+    /** cuantos bytes tenemos que leer*/
+    uint16_t len;
+    /** cuantos bytes ya leimos */
+    uint16_t i;
+    int separated;
+};
 
 #endif
