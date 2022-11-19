@@ -41,11 +41,11 @@ int main(int argc, char *argv[]) {
     close(0);
 
 
-    struct in_addr server_ipv4_addr;
-    int server_v4 = FD_UNUSED;
+    struct in_addr server_ipv4_addr, protocol_ipv4_addr;
+    int server_v4 = FD_UNUSED, protocol_v4 = FD_UNUSED;
 
-    struct in6_addr server_ipv6_addr;
-    int server_v6 = FD_UNUSED;
+    struct in6_addr server_ipv6_addr, protocol_ipv6_addr;
+    int server_v6 = FD_UNUSED, protocol_v6 = FD_UNUSED;
 
     //Para menejar la finalizacion del servidor, con CNTRL+c salte la sigterm_handler
     signal(SIGTERM, sigterm_handler);
@@ -61,6 +61,16 @@ int main(int argc, char *argv[]) {
         fprintf(stdout, "Socks: listening on IPv4 TCP port %d\n", args.socks_port);
     }
 
+    // socket pasivo protocolo IPv4
+    if(inet_pton(AF_INET, args.mng_addr, &protocol_ipv4_addr) == 1) {
+        protocol_v4 = bind_ipv4_socket(protocol_ipv4_addr, args.mng_port);
+        if (protocol_v4 < 0) {
+            err_msg = "unable to create IPv4 protocol socket";
+            goto finally;
+        }
+        fprintf(stdout, "Protocol: listening on IPv4 TCP port %d\n", args.mng_port);
+    }
+
     char* ipv6_addr_text = args.is_default_socks_addr ? DEFAULT_SOCKET_ADDR_V6 : args.socks_addr;
 
     if((!IS_FD_USED(server_v4) || args.is_default_socks_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &server_ipv6_addr) == 1)){
@@ -72,8 +82,24 @@ int main(int argc, char *argv[]) {
         fprintf(stdout, "Socks: listening on IPv6 TCP port %d\n", args.socks_port);
     }
 
+    ipv6_addr_text = args.is_default_mng_addr ? DEFAULT_CONF_ADDR_V6 : args.mng_addr;
+
+    if((!IS_FD_USED(protocol_v4) || args.is_default_mng_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &protocol_ipv6_addr) == 1)){
+        protocol_v6 = bind_ipv6_socket(protocol_ipv6_addr, args.mng_port);
+        if (protocol_v6 < 0) {
+            err_msg = "unable to create IPv6 socket";
+            goto finally;
+        }
+        fprintf(stdout, "Protocol: listening on IPv6 TCP port %d\n", args.mng_port);
+    }
+
     if(!IS_FD_USED(server_v4) && !IS_FD_USED(server_v6)) {
         fprintf(stderr, "unable to parse socks server ip\n");
+        goto finally;
+    }
+
+    if(!IS_FD_USED(protocol_v4) && !IS_FD_USED(protocol_v6)) {
+        fprintf(stderr, "unable to parse protocol server ip\n");
         goto finally;
     }
 
