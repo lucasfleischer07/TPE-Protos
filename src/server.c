@@ -114,6 +114,16 @@ int main(int argc, char *argv[]) {
         goto finally;
     }
 
+    if(IS_FD_USED(protocol_v4) && (selector_fd_set_nio(protocol_v4) == -1)){
+        err_msg = "getting protocol server ipv4 socket flags";
+        goto finally;
+    }
+
+    if(IS_FD_USED(protocol_v6) && (selector_fd_set_nio(protocol_v6) == -1)) {
+        err_msg = "getting protocol server ipv6 socket flags";
+        goto finally;
+    }
+
     const struct selector_init conf = {
         .signal = SIGALRM, // le doy una señal para que trabaje internamente el selector
         .select_timeout = { // estructura para el tiempo maximo de bloqueo
@@ -151,6 +161,27 @@ int main(int argc, char *argv[]) {
         ss = selector_register(selector, server_v6, &master_socket_handler, OP_READ, NULL);
         if(ss != SELECTOR_SUCCESS) {
             err_msg = "registering IPv6 socks fd";
+            goto finally;
+        }
+    }
+
+    const struct fd_handler protocol = {
+        .handle_read       = NULL,//protocol_passive_accept,
+        .handle_write      = NULL,
+        .handle_close      = NULL,
+    };
+
+    if(IS_FD_USED(protocol_v4)){
+        ss = selector_register(selector, protocol_v4, &protocol, OP_READ, NULL);
+        if(ss != SELECTOR_SUCCESS) {
+            err_msg = "registering IPv4 protocol fd";
+            goto finally;
+        }
+    }
+    if(IS_FD_USED(protocol_v6)){
+        ss = selector_register(selector, protocol_v6, &protocol, OP_READ, NULL);
+        if(ss != SELECTOR_SUCCESS) {
+            err_msg = "registering IPv6 protocol fd";
             goto finally;
         }
     }
