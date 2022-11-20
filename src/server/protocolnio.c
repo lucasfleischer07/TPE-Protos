@@ -73,7 +73,18 @@ static struct connection *connection_new(int client_fd) {
     return ret;
 }
 
+/** destruye un  `struct connection', tiene en cuenta el pool de objetos.*/
+static void connection_destroy(struct connection *s) {
+    if(s == NULL) return;
 
+    if(pool_size < max_pool) { // agregamos a la pool
+        s->next = pool;
+        pool    = s;
+        pool_size++;
+    } else {
+        free(s);    // realmente destruye
+    }
+}
 
 static void protocol_init(struct connection *state) {
     struct protocol_st *d    = &state->request;
@@ -86,11 +97,13 @@ static void protocol_init(struct connection *state) {
 
 /* handlers de seleccion de una coneccion entre el cliente y el server, similar a socks5nio*/
 static void protocol_read   (struct selector_key *key);
-
+static void protocol_write  (struct selector_key *key);
+static void protocol_close  (struct selector_key *key);
 
 static const struct fd_handler protocol_handler = {
     .handle_read   = protocol_read,  // selector despierta para lectura
-    
+    .handle_write  = protocol_write, // selector despierta para escritura
+    .handle_close  = protocol_close, // se llama en el selector_unregister_fd
 };
 
 
@@ -131,6 +144,66 @@ static void protocol_read(struct selector_key *key) {
     }
 }
 
+//Struct de admin y el arreglo con los admins registrados (aclarando el default)
+struct admin {
+    char    uname[ADMIN_UNAME_SIZE];    // null terminated
+    char    token[ADMIN_TOKEN_SIZE];    // 16 bytes fijos + \0
+};
+
+/** el admins[0] sera creado apenas se corra el servidor, pasando el token con el parametro adecuado */
+struct admin admins[MAX_ADMINS]; // TODO: agregar admin root desde el server.c
+size_t registered_admins = 0;
+char *default_admin_uname = "root";
+
+/** Intenta de registrar el admin pedido, puede fallar por estar al maximo, por que el token sea incorrecto
+ *  o por que ese token ya estaba registrado
+ */
+int protocol_register_admin(char *uname, char *token) { // ambos null terminated
+    if (registered_admins >= MAX_ADMINS)
+        return 1; // maximo numero de usuarios alcanzado
+    
+    if (strlen(token) != 0x10)
+        return -1; // token invalido
+
+    for (size_t i = 0; i < registered_admins; i++) {
+        if (strcmp(uname, admins[i].uname) == 0)
+            return -1; // username ya existente
+    }
+
+    // insertamos al final (podrian insertarse en orden alfabetico para mas eficiencia pero al ser pocos es irrelevante)
+    strncpy(admins[registered_admins].uname, registered_admins == 0 ? default_admin_uname : uname, 0xff);
+    strncpy(admins[registered_admins++].token, token, 0x11);
+    return 0;
+}
+
+
+/** Intenta borrar el admin de la lista, si es el admin root, falla. Tambien puede fallar si el token 
+ *  no esta registrado en la lista
+  */
+int protocol_unregister_admin(char *uname) {
+    if (strcmp(default_admin_uname, uname) == 0)
+        return -1; // no se puede remover el admin root
+
+    for (size_t i = 1; i < registered_admins; i++) {
+        if (strcmp(uname, admins[i].uname) == 0) {
+            // movemos los elementos para tapar el hueco que pudo haber quedado
+            if (i + 1 < registered_admins)
+                memmove(&admins[i], &admins[i+1], sizeof(struct admin) * (registered_admins - (i + 1)));
+            registered_admins--;
+            return 0;
+        }
+    }
+    return -1;  // usuario no encontrado
+}
+
+
+static bool protocol_user_is_admin(char *token) {
+    for (size_t i = 0; i < registered_admins; i++) {
+        if (strncmp(token, admins[i].token, ADMIN_TOKEN_SIZE -1) == 0)
+            return true;
+    }
+    return false;
+}
 
 
 
@@ -230,3 +303,73 @@ finally:
     free(data);
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+// write_handler
+
+static void protocol_write(struct selector_key *key) {
+    struct protocol_st *d = &ATTACHMENT(key)->request;
+
+    buffer *b    = d->wb;
+    uint8_t *ptr;
+    size_t count;
+    ssize_t n;
+
+    ptr = buffer_read_ptr(b, &count);
+    // como nos desperto el select, al menos 1 byte tenemos que poder mandar
+    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
+
+    if (n == -1) {
+        protocol_finish(key);
+    } else {
+        buffer_read_adv(b, n);
+        //Si no queda nada en el buffer de escritura, el protocolo finaliza correctamente
+        if (!buffer_can_read(b))
+            protocol_finish(key); // terminamos de escribir, cerramos la conexion
+    }
+}
+
+
+
+/** Handler de la nueva conexion por el protocolo*/
+void protocol_passive_accept(struct selector_key *key) {
+    struct connection *state = NULL;
+
+    const int client = accept(key->fd, NULL, NULL);
+
+    if (client == -1 || selector_fd_set_nio(client) == -1)
+        goto fail;
+
+    // instancio estructura de estado
+    state = connection_new(client);
+    if (state == NULL)
+        goto fail;
+
+    if(SELECTOR_SUCCESS != selector_register(key->s, client, &protocol_handler, OP_READ, state))
+        goto fail;
+
+    protocol_init(state);
+
+    return;
+
+fail:
+    if (client != -1)
+        close(client);
+
+    connection_destroy(state);
+}
+
+/*Finaliza la coneccion,ya se por error o no*/
+static void protocol_finish(struct selector_key* key) {
+    int client_fd = ATTACHMENT(key)->client_fd;
+    if (client_fd != -1) {
+        if(SELECTOR_SUCCESS != selector_unregister_fd(key->s, client_fd)) // desencadena el protocol_close()
+            abort();
+        close(client_fd);
+    }
+}
+
+
+static void
+protocol_close(struct selector_key *key) {
+    connection_destroy(ATTACHMENT(key));
+}
