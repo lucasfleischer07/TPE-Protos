@@ -56,5 +56,5 @@ dkms.conf
 build/*
 .vscode
 
-client
+client5
 socks5d
