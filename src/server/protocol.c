@@ -11,6 +11,9 @@
 static uint8_t combinedlen[2] = {0};
 static size_t username_len_with_null = 0;
 
+extern int protocol_error_marshall(buffer *b, struct protocol_parser *p);
+
+extern int protocol_marshall(buffer *b, enum protocol_response_status status, uint16_t dlen, void *data, bool numeric_data);
 
 /* Si se llego a este estado, ya se finalizo el parseo*/
 bool protocol_is_done(enum protocol_state state){
