@@ -65,9 +65,9 @@ enum protocol_response_status {
     protocol_status_succeeded                            = 0x00,
     protocol_status_invalid_version                      = 0x01,
     protocol_status_invalid_method                       = 0x02,
-    protocol_status_invalid_data                         = 0x04,
-    protocol_status_error_auth                           = 0x05,
-    protocol_status_server_error                         = 0x06,
+    protocol_status_invalid_data                         = 0x03,
+    protocol_status_error_auth                           = 0x04,
+    protocol_status_server_error                         = 0x05,
 
 };
 

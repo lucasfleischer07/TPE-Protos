@@ -321,3 +321,86 @@ void protocol_parser_init(struct protocol_parser *p) {
     memset(p->protocol, 0, sizeof(*(p->protocol)));
 }
 
+/** Funcion que se encarga de pasar los errores al buffer */
+extern int protocol_error_marshall(buffer *b, struct protocol_parser *p) {
+    enum protocol_state st = p->state;
+
+    size_t n;
+    buffer_write_ptr(b, &n);
+
+    if (n < 4)
+        return -1;
+
+    // STATUS
+    switch(st) {
+        case protocol_error_unsupported_version:
+            buffer_write(b, protocol_status_invalid_version);
+            break;
+        case protocol_error_invalid_token:
+            buffer_write(b, protocol_status_error_auth);
+            break;
+        case protocol_error_unsupported_method:
+            buffer_write(b, protocol_status_invalid_method);
+            break;
+        case protocol_error_invalid_data:
+            buffer_write(b, protocol_status_invalid_data);
+            break;
+        default:
+            buffer_write(b, protocol_status_server_error);
+            break;
+    }
+
+   
+    union data_len datalen;
+    datalen.len = htons(1); 
+
+    // DLEN
+    buffer_write(b, datalen.byte[0]);
+    buffer_write(b, datalen.byte[1]);
+
+    // DATA
+    buffer_write(b, 0);
+
+    return 4;
+}
+
+
+extern int protocol_marshall(buffer *b, enum protocol_response_status status, uint16_t dlen, void *data, bool numeric_data) {
+    // llenar status y dlen primero, checkeando el espacio que hay en el buffer (si te quedas sin espacio en el buffer retornas -1)
+    size_t n;
+    buffer_write_ptr(b, &n);
+
+    if (n < (size_t) dlen + 3)
+        return -1;
+    
+   
+    union data_len response_len;
+    response_len.len = htons(dlen); 
+    
+    buffer_write(b, status);
+    //mando dlen
+    buffer_write(b, response_len.byte[0]);
+    buffer_write(b, response_len.byte[1]);
+
+    if (numeric_data) {
+        uint8_t numeric_response[4];
+
+        uint32_t number = htonl(*((uint32_t*)data));
+        memcpy(numeric_response, &number, sizeof(uint32_t));
+
+        for (int i = 0; i < 4; i++) {
+            buffer_write(b, numeric_response[i]);
+        }
+    } else {
+        uint8_t *databytes = (uint8_t *) data; 
+        if (databytes == NULL) {
+            buffer_write(b, 0);
+        } else {
+            for (uint16_t i = 0; i < dlen; i++) {
+                buffer_write(b, databytes[i]);
+            }
+        }
+    }
+
+    return dlen + 3;
+}
