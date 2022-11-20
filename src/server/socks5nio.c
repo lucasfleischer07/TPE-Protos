@@ -797,7 +797,7 @@ request_resolv_blocking(void *data) {
     selector_notify_block(key->s, key->fd);
 
     free(data); // era una copia del estado original
-    return 0;    
+    return 0;
 }
 
 

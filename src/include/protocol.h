@@ -139,6 +139,8 @@ extern enum protocol_state protocol_consume(buffer *b, struct protocol_parser *p
 /** Funcion que devuelve verdadero cuando se finaliza el parseo  */
 bool protocol_is_done(enum protocol_state state);
 
+extern int protocol_error_marshall(buffer *b, struct protocol_parser *p);
 
+extern int protocol_marshall(buffer *b, enum protocol_response_status status, uint16_t dlen, void *data, bool numeric_data);
 
 #endif
