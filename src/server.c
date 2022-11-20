@@ -15,6 +15,7 @@
 #include "selector.h"
 #include "socks5nio.h"
 #include "args.h"
+#include "protocolnio.h"
 
 static bool ended = false;
 
@@ -63,7 +64,7 @@ int main(int argc, char *argv[]) {
 
     // socket pasivo protocolo IPv4
     if(inet_pton(AF_INET, args.mng_addr, &protocol_ipv4_addr) == 1) {
-        protocol_v4 = bind_ipv4_socket(protocol_ipv4_addr, args.mng_port);
+        protocol_v4 = ipv4_socket_binder(protocol_ipv4_addr, args.mng_port);
         if (protocol_v4 < 0) {
             err_msg = "unable to create IPv4 protocol socket";
             goto finally;
@@ -85,7 +86,7 @@ int main(int argc, char *argv[]) {
     ipv6_addr_text = args.is_default_mng_addr ? DEFAULT_CONF_ADDR_V6 : args.mng_addr;
 
     if((!IS_FD_USED(protocol_v4) || args.is_default_mng_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &protocol_ipv6_addr) == 1)){
-        protocol_v6 = bind_ipv6_socket(protocol_ipv6_addr, args.mng_port);
+        protocol_v6 = ipv6_socket_binder(protocol_ipv6_addr, args.mng_port);
         if (protocol_v6 < 0) {
             err_msg = "unable to create IPv6 socket";
             goto finally;
@@ -166,7 +167,7 @@ int main(int argc, char *argv[]) {
     }
 
     const struct fd_handler protocol = {
-        .handle_read       = NULL,//protocol_passive_accept,
+        .handle_read       = protocol_passive_accept,
         .handle_write      = NULL,
         .handle_close      = NULL,
     };
