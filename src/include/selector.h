@@ -6,9 +6,9 @@
 
 /**
  * selector.c - un muliplexor de entrada salida
- selector permite manejar en un único hilo de ejecución la entrada salida
- * de file descriptors de forma no bloqueante.*
- * Un 
+ *
+ * Un selector permite manejar en un único hilo de ejecución la entrada salida
+ * de file descriptors de forma no bloqueante.
  *
  * Esconde la implementación final (select(2) / poll(2) / epoll(2) / ..)
  *
