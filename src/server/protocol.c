@@ -69,7 +69,15 @@ static enum protocol_state method(const uint8_t c, struct protocol_parser *p) {
         case get_historic:
         case get_concurrent:
         case get_transfered:
-       
+        case get_proxyusers:
+            p->protocol->method = c;
+            next=protocol_done;
+            break;
+        case pop3disector:
+        case add_proxyuser:
+        case delete_proxyuser:
+        case add_admin:
+        case delete_admin:
             p->protocol->method = c;
             //Le aviso que DLEN debe leer 2 bytes
             remaining_set(p,DLEN_SIZE);
