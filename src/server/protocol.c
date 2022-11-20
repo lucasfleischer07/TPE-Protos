@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdio.h> // printf
 
-#include "../include/protocol.h"
+#include "protocol.h"
 
 // Si se llego a este estado, ya se finalizo el parseo
 bool protocol_is_done(enum protocol_state state){
@@ -24,4 +24,11 @@ extern enum protocol_state protocol_consume(buffer *b, struct protocol_parser *p
             break;
     }
     return st;
+}
+
+
+// Arranco en el estado de protocol_version, el inicio del mensaje deberia ser y le doy el parser
+extern void protocol_parser_init(struct protocol_parser *p) {
+    p->state = protocol_version;
+    memset(p->protocol, 0, sizeof(*(p->protocol)));
 }
