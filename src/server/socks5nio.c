@@ -1,7 +1,7 @@
 /**
  * socks5nio.c  - controla el flujo de un proxy SOCKSv5 (sockets no bloqueantes)
  */
-#include<stdio.h>
+#include <stdio.h>
 #include <stdlib.h>  
 #include <string.h>  
 #include <assert.h>  
@@ -285,6 +285,17 @@ uint32_t historic_connections = 0;
 uint32_t current_connections  = 0;
 uint32_t bytes_transferred    = 0;
 
+uint32_t socksv5_historic_connections() {
+    return historic_connections;
+}
+
+uint32_t socksv5_current_connections() {
+    return current_connections;
+}
+
+uint32_t socksv5_bytes_transferred() {
+    return bytes_transferred;
+}
 
 /** Pool de structs socks5 para ser reusados */
 static const unsigned   max_pool = 50; // tamaño max
@@ -994,8 +1005,8 @@ auth_process(struct selector_key *key, struct auth_st *d) {
     bool authenticated = false;
     
     for (size_t i = 0; i < registered_users; i++) {
-        if (strncmp(d->auth.uname, users[i].uname, 0xff) == 0 &&
-            strncmp(d->auth.passwd, users[i].passwd, 0xff) == 0) {
+        if (strncmp(d->auth.uname, users[i].uname, USERNAME_SIZE_SOCKS5) == 0 &&
+            strncmp(d->auth.passwd, users[i].passwd, USERNAME_SIZE_SOCKS5) == 0) {
             // sets client uname in struct socks5
             ATTACHMENT(key)->client_uname = users[i].uname;
             authenticated = true;
@@ -1022,15 +1033,38 @@ int socksv5_register_user(char *uname, char *passwd) {
     }
 
     // insertamos al final (podrian insertarse en orden alfabetico para mas eficiencia pero al ser pocos es irrelevante)
-    strncpy(users[registered_users].uname, uname, 0xff);
-    strncpy(users[registered_users++].passwd, passwd, 0xff);
+    strncpy(users[registered_users].uname, uname, USERNAME_SIZE_SOCKS5);
+    strncpy(users[registered_users++].passwd, passwd, USERNAME_SIZE_SOCKS5);
     return 0;
+}
+
+int socksv5_unregister_user(char *uname) {
+    for (size_t i = 0; i < registered_users; i++) {
+        if (strcmp(uname, users[i].uname) == 0) {
+            // movemos los elementos para tapar el hueco que pudo haber quedado
+            if (i + 1 < registered_users)
+                memmove(&users[i], &users[i+1], sizeof(struct user) * (registered_users - (i + 1)));
+            registered_users--;
+            return 0;
+        }
+    }
+    return -1;  // usuario no encontrado
 }
 
 void socksv5_toggle_disector(bool to) {
     is_disector_on = to;
 }
 
+
+// entrega la lista de usuarios con formato <usuario>\0<usuario>, tal como la pasan en el request del protocolo
+uint16_t socksv5_get_users(char unames[MAX_USERS * USERNAME_SIZE_SOCKS5]) {
+    uint16_t dlen = 0;
+    for (size_t i = 0; i < registered_users; i++) {
+        strcpy(unames + dlen, users[i].uname);
+        dlen += strlen(users[i].uname) + 1; // incluimos el \0
+    }
+    return dlen > 1 ? dlen - 1 : 0; // no pone el ultimo \0
+}
 
 
 ////////////
