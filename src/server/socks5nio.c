@@ -753,8 +753,7 @@ finally:
 }
 
 /** Paso final del request, se llama cuando salte el on_block_ready del estado (cuando la consulta DNS traiga la respuesta). */
-static unsigned
-request_resolv_done(struct selector_key *key) {
+static unsigned request_resolv_done(struct selector_key *key) {
     struct request_st *d = &ATTACHMENT(key)->client.request;
     struct socks5 *s     = ATTACHMENT(key);
 
@@ -925,8 +924,7 @@ struct user {
 struct user users[MAX_USERS];
 
 
-static void
-auth_init(const unsigned state, struct selector_key *key) {
+static void auth_init(const unsigned state, struct selector_key *key) {
     struct auth_st *d       = &ATTACHMENT(key)->client.auth;
     d->rb                   = &(ATTACHMENT(key)->read_buffer);
     d->wb                   = &(ATTACHMENT(key)->write_buffer);
@@ -937,8 +935,7 @@ auth_init(const unsigned state, struct selector_key *key) {
 }
 
 /** lee la auth e inicia el proceso */
-static unsigned
-auth_read(struct selector_key *key) {
+static unsigned auth_read(struct selector_key *key) {
     struct auth_st *d       = &ATTACHMENT(key)->client.auth;
 
     buffer *b            = d->rb;
@@ -967,8 +964,7 @@ auth_read(struct selector_key *key) {
     return error ? ERROR : ret;
 }
 
-static unsigned
-auth_write(struct selector_key *key) {
+static unsigned auth_write(struct selector_key *key) {
     struct auth_st *d       = &ATTACHMENT(key)->client.auth;
     unsigned ret            = AUTH_WRITE;
     buffer *b               = d->wb;
@@ -1000,8 +996,7 @@ auth_write(struct selector_key *key) {
     return ret;
 }
 
-static unsigned
-auth_process(struct selector_key *key, struct auth_st *d) {
+static unsigned auth_process(struct selector_key *key, struct auth_st *d) {
     bool authenticated = false;
     
     for (size_t i = 0; i < registered_users; i++) {
@@ -1095,8 +1090,7 @@ static void copy_init(const unsigned state, struct selector_key *key) {
 }
 
 /** actualiza los intereses en el selector segun el estado del copy */
-static fd_interest
-copy_compute_interests(fd_selector s, struct copy *d) {
+static fd_interest copy_compute_interests(fd_selector s, struct copy *d) {
     fd_interest ret = OP_NOOP;
     if ((d->duplex & OP_READ) && buffer_can_write(d->rb))
         ret |= OP_READ;
@@ -1108,8 +1102,7 @@ copy_compute_interests(fd_selector s, struct copy *d) {
 }
 
 /** dependiendo del caso, devuelve la estrucutura correspondiente (client.copy o orig.copy) */
-static struct copy *
-copy_ptr(struct selector_key *key) {
+static struct copy * copy_ptr(struct selector_key *key) {
     // agarramos cualquiera de los extremos del copy
     struct copy *d = &ATTACHMENT(key)->client.copy;
 

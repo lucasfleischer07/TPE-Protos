@@ -73,5 +73,7 @@ static void serialize_config_data(struct client_request_args *args, char *buffer
         case del_admin_user:
             memcpy(FIELD_DATA(buffer), args->data.user, args->dlen);
             break;
+        default:    //No deberia llegar aca
+            break;
     }
 }

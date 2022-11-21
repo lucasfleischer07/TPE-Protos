@@ -48,9 +48,7 @@ int main(int argc, char *argv[]) {
     struct in6_addr server_ipv6_addr, protocol_ipv6_addr;
     int server_v6 = FD_UNUSED, protocol_v6 = FD_UNUSED;
 
-    //Para menejar la finalizacion del servidor, con CNTRL+c salte la sigterm_handler
-    signal(SIGTERM, sigterm_handler);
-    signal(SIGINT,  sigterm_handler);
+    
 
     // sockets pasivos de IPV4 y IPv6 
     if(inet_pton(AF_INET, args.socks_addr, &server_ipv4_addr) == 1){       // if parsing to ipv4 succeded
@@ -72,18 +70,20 @@ int main(int argc, char *argv[]) {
         fprintf(stdout, "Protocol: listening on IPv4 TCP port %d\n", args.mng_port);
     }
 
+
     char* ipv6_addr_text = args.is_default_socks_addr ? DEFAULT_SOCKET_ADDR_V6 : args.socks_addr;
 
     if((!IS_FD_USED(server_v4) || args.is_default_socks_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &server_ipv6_addr) == 1)){
         server_v6 = ipv6_socket_binder(server_ipv6_addr, args.socks_port);
         if (server_v6 < 0) {
-            err_msg = "creation of socket IPV6 failed";
+            err_msg = "unable to create IPv6 socket";
             goto finally;
         }
         fprintf(stdout, "Socks: listening on IPv6 TCP port %d\n", args.socks_port);
     }
 
-    ipv6_addr_text = args.is_default_mng_addr ? DEFAULT_CONF_ADDR_V6 : args.mng_addr;
+     // socket pasivo protocol  IPv6
+     ipv6_addr_text = args.is_default_mng_addr ? DEFAULT_CONF_ADDR_V6 : args.mng_addr;
 
     if((!IS_FD_USED(protocol_v4) || args.is_default_mng_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &protocol_ipv6_addr) == 1)){
         protocol_v6 = ipv6_socket_binder(protocol_ipv6_addr, args.mng_port);
@@ -91,8 +91,9 @@ int main(int argc, char *argv[]) {
             err_msg = "unable to create IPv6 socket";
             goto finally;
         }
-        fprintf(stdout, "Protocol: listening on IPv6 TCP port %d\n", args.mng_port);
+        fprintf(stdout, "protocol: listening on IPv6 TCP port %d\n", args.mng_port);
     }
+    
 
     if(!IS_FD_USED(server_v4) && !IS_FD_USED(server_v6)) {
         fprintf(stderr, "unable to parse socks server ip\n");
@@ -103,6 +104,10 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "unable to parse protocol server ip\n");
         goto finally;
     }
+
+    //Para menejar la finalizacion del servidor, con CNTRL+c salte la sigterm_handler
+    signal(SIGTERM, sigterm_handler);
+    signal(SIGINT,  sigterm_handler);
 
     // seteamos los sockets pasivos como no bloqueantes
     if(IS_FD_USED(server_v4) && (selector_fd_set_nio(server_v4) == -1)){

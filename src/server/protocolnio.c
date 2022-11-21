@@ -154,6 +154,7 @@ struct admin {
 struct admin admins[MAX_ADMINS]; // TODO: agregar admin root desde el server.c
 size_t registered_admins = 0;
 char *default_admin_uname = "root";
+char *default_admin_token = "roottokenspecial";
 
 /** Intenta de registrar el admin pedido, puede fallar por estar al maximo, por que el token sea incorrecto
  *  o por que ese token ya estaba registrado
@@ -198,6 +199,9 @@ int protocol_unregister_admin(char *uname) {
 
 
 static bool protocol_user_is_admin(char *token) {
+    if(strncmp(token,default_admin_token, ADMIN_TOKEN_SIZE -1) == 0){
+        return true;
+    }
     for (size_t i = 0; i < registered_admins; i++) {
         if (strncmp(token, admins[i].token, ADMIN_TOKEN_SIZE -1) == 0)
             return true;

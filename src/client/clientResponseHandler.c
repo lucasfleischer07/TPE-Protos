@@ -55,6 +55,8 @@ void handle_config_ok_status(struct client_request_args arg) {
         case del_admin_user:
             printf("The admin: '%s' is now deleted in the server\n", arg.data.add_proxy_user_params.user);
             break;
+        default:    //NO deberia llegar a aca
+            break;
     }      
 }
 

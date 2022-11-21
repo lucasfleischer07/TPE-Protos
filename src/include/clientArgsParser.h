@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
+
+
 /** Define el addr default, el puerto default y los tamaños de las partes del protocolo*/
 #define DEFAULT_CONF_ADDR           "127.0.0.1"
 #define DEFAULT_CONF_PORT           "8080"

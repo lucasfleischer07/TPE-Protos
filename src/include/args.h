@@ -7,7 +7,7 @@
 
 #define DEFAULT_SOCKET_ADDR_V4          "0.0.0.0"
 #define DEFAULT_SOCKET_ADDR_V6       "::0"
-#define DEFAULT_SOCKET_PORT          1080
+#define DEFAULT_SOCKET_PORT          8081
 
 #define DEFAULT_CONF_ADDR           "127.0.0.1"
 #define DEFAULT_CONF_ADDR_V6        "::1"

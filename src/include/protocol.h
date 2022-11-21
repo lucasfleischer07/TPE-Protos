@@ -74,7 +74,7 @@ enum protocol_response_status {
 enum protocol_method {
     get_historic                = 0x00,
     get_concurrent              = 0x01,
-    get_transfered              = 0x02,
+    get_transfered              = 0x02, 
     pop3disector                = 0x03,
     add_proxyuser               = 0x04,
     delete_proxyuser            = 0x05,
@@ -139,8 +139,11 @@ extern enum protocol_state protocol_consume(buffer *b, struct protocol_parser *p
 /** Funcion que devuelve verdadero cuando se finaliza el parseo  */
 bool protocol_is_done(enum protocol_state state);
 
+/** Funcion encargada de imprimir en el buffer los mensajes de error*/
 extern int protocol_error_marshall(buffer *b, struct protocol_parser *p);
 
+/** Funcion encargada de imprimir en el buffer la respuesta del server*/
 extern int protocol_marshall(buffer *b, enum protocol_response_status status, uint16_t dlen, void *data, bool numeric_data);
+
 
 #endif

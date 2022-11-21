@@ -5,7 +5,7 @@
 
 #include "clientArgsParser.h"
 
-#define BASE_REQUEST_DATA           20
+#define BASE_REQUEST_DATA           21
 
 // Indices de los campos en el mensaje serializado
 #define FIELD_VERSION_INDEX         0
