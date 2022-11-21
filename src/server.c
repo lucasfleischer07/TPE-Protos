@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
     if((!IS_FD_USED(server_v4) || args.is_default_socks_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &server_ipv6_addr) == 1)){
         server_v6 = ipv6_socket_binder(server_ipv6_addr, args.socks_port);
         if (server_v6 < 0) {
-            err_msg = "unable to create IPv6 socket";
+            err_msg = "Unable to create IPv6 socket";
             goto finally;
         }
         fprintf(stdout, "Socks: listening on IPv6 TCP port %d\n", args.socks_port);
@@ -88,20 +88,20 @@ int main(int argc, char *argv[]) {
     if((!IS_FD_USED(protocol_v4) || args.is_default_mng_addr) && (inet_pton(AF_INET6, ipv6_addr_text, &protocol_ipv6_addr) == 1)){
         protocol_v6 = ipv6_socket_binder(protocol_ipv6_addr, args.mng_port);
         if (protocol_v6 < 0) {
-            err_msg = "unable to create IPv6 socket";
+            err_msg = "Unable to create IPv6 socket";
             goto finally;
         }
-        fprintf(stdout, "protocol: listening on IPv6 TCP port %d\n", args.mng_port);
+        fprintf(stdout, "Protocol: listening on IPv6 TCP port %d\n", args.mng_port);
     }
     
 
     if(!IS_FD_USED(server_v4) && !IS_FD_USED(server_v6)) {
-        fprintf(stderr, "unable to parse socks server ip\n");
+        fprintf(stderr, "Unable to parse socks server ip\n");
         goto finally;
     }
 
     if(!IS_FD_USED(protocol_v4) && !IS_FD_USED(protocol_v6)) {
-        fprintf(stderr, "unable to parse protocol server ip\n");
+        fprintf(stderr, "Unable to parse protocol server ip\n");
         goto finally;
     }
 

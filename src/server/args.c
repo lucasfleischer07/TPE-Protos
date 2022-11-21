@@ -66,6 +66,8 @@ static void usage(const char *progname) {
 
 void parse_args(const int argc, char **argv, struct socks5args *args) {
     memset(args, 0, sizeof(*args)); // sobre todo para setear en null los punteros de users
+    args->is_default_socks_addr = true;
+    args->is_default_mng_addr = true;
 
     args->socks_addr = "0.0.0.0";
     args->socks_port = 1080;
@@ -104,9 +106,11 @@ void parse_args(const int argc, char **argv, struct socks5args *args) {
                 usage(argv[0]);
                 break;
             case 'l':
+                args->is_default_socks_addr = false;
                 args->socks_addr = optarg;
                 break;
             case 'L':
+                args->is_default_mng_addr = false;
                 args->mng_addr = optarg;
                 break;
             case 'N':
