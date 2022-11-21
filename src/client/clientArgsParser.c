@@ -6,8 +6,13 @@
 #include <getopt.h>
 
 #include "clientArgsParser.h"
-
+#include "client.h"
 #define EXTRA_PARAMS 3
+
+static size_t token_check(const char *src, char *dest_token, char *progname);
+
+
+
 /** Chequea que s sea un puerto valido */
 static unsigned short port(const char *s, char* progname) {
     char *end     = 0;
@@ -26,16 +31,16 @@ static void usage(const char *progname) {
         "Usage: %s [OPTIONS]... TOKEN [DESTINATION] [PORT]\n"
         "Options:\n"
         "-h                  imprime los comandos del programa y termina.\n"
+        "-r <user!pass>      agrega un usuario del proxy con el nombre y contraseña indicados.\n"
+        "-R <user!token>     agrega un usuario administrador con el nombre y token indicados.\n"
         "-c                  imprime la cantidad de conexiones concurrentes del server.\n"
         "-C                  imprime la cantidad de conexiones históricas del server.\n"
         "-b                  imprime la cantidad de bytes transferidos del server.\n"
-        "-a                  imprime una lista con los usuarios del proxy.\n"
-        "-n                  enciende el password disector en el server.\n"
-        "-N                  apaga el password disector en el server.\n"
-        "-u <user:pass>      agrega un usuario del proxy con el nombre y contraseña indicados.\n"
-        "-U <user:token>     agrega un usuario administrador con el nombre y token indicados.\n"
+        "-l                  imprime una lista con los usuarios del proxy.\n"
         "-d <user>           borra el usuario del proxy con el nombre indicado.\n"
         "-D <user>           borra el usuario administrador con el nombre indicado.\n"
+        "-O                  enciende el password disector en el server.\n"
+        "-F                  apaga el password disector en el server.\n"
         "-v                  imprime la versión del programa y termina.\n"
         "\n",
         progname);
@@ -62,17 +67,17 @@ static size_t string_check(const char *src, char *dest, char* field_name, size_t
 /** carga el username y password en la estructura declarada, que esta dentro de data*/
 static size_t username_with_password(char *src, struct config_add_proxy_user *user_params, char *progname){
     size_t str_len;
-    char *separator = strchr(src, ':');
+    char *separator = strchr(src, '!');
 
     if(separator == NULL) {
         fprintf(stderr, "%s: missing password for user %s.\n", progname, src);
         exit(1);
-    } else if(src[0] == ':') {
+    } else if(src[0] == '!') {
         fprintf(stderr, "%s: missing username for password %s.\n", progname, separator + 1);
         exit(1);
     }
     //El username sera hasta el separador, y el password sera desde el separador + 1 hasta el final 
-    char *username = strtok(src, ":");
+    char *username = strtok(src, "!");
     char *password = separator + 1;
 
     str_len = string_check(username, user_params->user, "username", USERNAME_SIZE, progname);
@@ -86,16 +91,16 @@ static size_t username_with_password(char *src, struct config_add_proxy_user *us
 /** parecido a suername_with_password */
 static size_t username_with_token(char *src, struct config_add_admin_user *admin_params, char *progname){
     size_t str_len;
-    char *separator = strchr(src, ':');
+    char *separator = strchr(src, '!');
 
     if(separator == NULL){
         fprintf(stderr, "%s: missing token for user %s.\n", progname, src);
         exit(1);
-    } else if(src[0] == ':'){
+    } else if(src[0] == '!'){
         fprintf(stderr, "%s: missing username for token %s.\n", progname, separator + 1);
     }
 
-    char* username = strtok(src, ":");
+    char* username = strtok(src, "!");
     char* token = separator + 1;
 
     str_len = string_check(username, admin_params->user, "username", USERNAME_SIZE, progname);
@@ -165,7 +170,7 @@ size_t parse_args(const int argc, char **argv, struct client_request_args *args,
 
     for(req_idx = 0 ; req_idx < MAX_CLIENT_REQUESTS ; req_idx++){
         //Chequea si hay mas argumentos por parsear, si hay argumento lo carga en optarg, una variable externa
-        int c = getopt(argc, argv, ":hcCbanNu:U:d:D:hv");
+        int c = getopt(argc, argv, ":hcCblOFr:R:d:D:hv");
         if (c == -1){
             break;
         }
@@ -190,30 +195,30 @@ size_t parse_args(const int argc, char **argv, struct client_request_args *args,
                 set_no_data_method(&args[req_idx]);
                 args[req_idx].method = transferred_bytes;
                 break;
-            case 'a':
+            case 'l':
                 // Get list of proxy users
                 set_no_data_method(&args[req_idx]);
                 args[req_idx].method = proxy_users_list;
                 // TODO: Show list of proxy users
                 break;
-            case 'n':
+            case 'O':
                 // Turns on password disector
                 args[req_idx].method = toggle_disector;
                 args[req_idx].dlen = 1;
                 args[req_idx].data.disector_data_params = disector_on;
                 break;
-            case 'N':
+            case 'F':
                 // Turns off password disector
                 args[req_idx].method = toggle_disector;
                 args[req_idx].dlen = 1;
                 args[req_idx].data.disector_data_params = disector_off;
                 break;
-            case 'u':
+            case 'r':
                 // Adds proxy user
                 args[req_idx].method = add_proxy_user;
                 args[req_idx].dlen = username_with_password(optarg, &args[req_idx].data.add_proxy_user_params, argv[0]);
                 break;
-            case 'U':
+            case 'R':
                 // Adds admin user
                 args[req_idx].method = add_admin_user;
                 args[req_idx].dlen = username_with_token(optarg, &args[req_idx].data.add_admin_user_params, argv[0]);
