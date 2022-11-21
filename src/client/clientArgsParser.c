@@ -31,8 +31,8 @@ static void usage(const char *progname) {
         "Usage: %s [OPTIONS]... TOKEN [DESTINATION] [PORT]\n"
         "Options:\n"
         "-h                  imprime los comandos del programa y termina.\n"
-        "-r <user!pass>      agrega un usuario del proxy con el nombre y contraseña indicados.\n"
-        "-R <user!token>     agrega un usuario administrador con el nombre y token indicados.\n"
+        "-r <user#pass>      agrega un usuario del proxy con el nombre y contraseña indicados.\n"
+        "-R <user#token>     agrega un usuario administrador con el nombre y token indicados.\n"
         "-c                  imprime la cantidad de conexiones concurrentes del server.\n"
         "-C                  imprime la cantidad de conexiones históricas del server.\n"
         "-b                  imprime la cantidad de bytes transferidos del server.\n"
@@ -67,17 +67,17 @@ static size_t string_check(const char *src, char *dest, char* field_name, size_t
 /** carga el username y password en la estructura declarada, que esta dentro de data*/
 static size_t username_with_password(char *src, struct config_add_proxy_user *user_params, char *progname){
     size_t str_len;
-    char *separator = strchr(src, '!');
+    char *separator = strchr(src, '#');
 
     if(separator == NULL) {
         fprintf(stderr, "%s: missing password for user %s.\n", progname, src);
         exit(1);
-    } else if(src[0] == '!') {
+    } else if(src[0] == '#') {
         fprintf(stderr, "%s: missing username for password %s.\n", progname, separator + 1);
         exit(1);
     }
     //El username sera hasta el separador, y el password sera desde el separador + 1 hasta el final 
-    char *username = strtok(src, "!");
+    char *username = strtok(src, "#");
     char *password = separator + 1;
 
     str_len = string_check(username, user_params->user, "username", USERNAME_SIZE, progname);
@@ -91,16 +91,16 @@ static size_t username_with_password(char *src, struct config_add_proxy_user *us
 /** parecido a suername_with_password */
 static size_t username_with_token(char *src, struct config_add_admin_user *admin_params, char *progname){
     size_t str_len;
-    char *separator = strchr(src, '!');
+    char *separator = strchr(src, '#');
 
     if(separator == NULL){
         fprintf(stderr, "%s: missing token for user %s.\n", progname, src);
         exit(1);
-    } else if(src[0] == '!'){
+    } else if(src[0] == '#'){
         fprintf(stderr, "%s: missing username for token %s.\n", progname, separator + 1);
     }
 
-    char* username = strtok(src, "!");
+    char* username = strtok(src, "#");
     char* token = separator + 1;
 
     str_len = string_check(username, admin_params->user, "username", USERNAME_SIZE, progname);
