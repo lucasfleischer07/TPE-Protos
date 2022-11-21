@@ -1,80 +1,29 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include "logger.h"
-#include "tcpClientUtil.h"
+#include "./include/client.h"
 
+
+#define BASE_RESPONSE_DATA      3
 #define BUFSIZE 512
 #define STDIN 0
 #define TRUE 1
 
-int main(int argc, char *argv[]) {
+int main(const int argc, char *argv[]) {
+	struct client_request_args  args[MAX_CLIENT_REQUESTS] = {0};
+    struct sockaddr_in          sin4;
+    struct sockaddr_in6         sin6;
+    enum ip_version             ip_version;
+    char                        token[TOKEN_SIZE];
 
-	if (argc != 3) {
-		log(FATAL, "usage: %s <Server Name/Address> <Server Port/Name>", argv[0]);
-	}
+	char writeBuffer[BASE_REQUEST_DATA + MAX_BYTES_DATA];
+    uint8_t buf[BASE_RESPONSE_DATA + MAX_BYTES_DATA];
 
-	char *server = argv[1];     // First arg: server name IP address 
+	size_t arg_amount = parse_args(argc,argv,args,token,&sin4,&sin6,&ip_version);
 
-	// Third arg server port
-	char * port = argv[2];
+	static uint8_t combinedlen[2] = {0};
+    static uint8_t numeric_data_array[4] = {0};
+    static uint32_t numeric_response;
 
-	// Create a reliable, stream socket using TCP
-	int sock = tcpClientSocket(server, port);
-	if (sock < 0) {
-		log(FATAL, "socket() failed")
-	}
+	int sock_fd;
+
 	
-
-	char * echoString = (char*) malloc(sizeof(char)*BUFSIZE);
-	size_t echoStringLen;
-	
-	while(TRUE) {
-
-		// escribe en echoString lo q leyo en STDIN si no hubo error.   
-		// fgets() returns s on success, and NULL on error or when end of file occurs while no characters have been read.
-		if(fgets(echoString, BUFSIZE, stdin) == NULL){
-			log(FATAL, "fgets error");
-		} 
-		
-		echoStringLen = strlen(echoString); // Determine input length
-		if(strcmp(echoString, "exit\n") == 0) {
-			break;
-		}
-
-		// Send the string to the server
-		ssize_t numBytes = send(sock, echoString, echoStringLen, 0);
-		if (numBytes < 0 || numBytes != echoStringLen){
-			log(FATAL, "send() failed expected %zu sent %zu", echoStringLen, numBytes);
-		}
-		
-		// Receive the same string back from the server
-		//unsigned int totalBytesRcvd = 0; 	// Count of total bytes received
-		//log(INFO, "Received: ")     		// Setup to print the echoed string
-		/* while (totalBytesRcvd < echoStringLen && numBytes >0) {
-			char buffer[BUFSIZE]; 
-			
-			 Receive up to the buffer size (minus 1 to leave space for a null terminator) bytes from the sender
-			numBytes = recv(sock, buffer, BUFSIZE - 1, 0);
-			if (numBytes < 0) {
-				log(ERROR, "recv() failed")
-			} else if (numBytes == 0) {
-				log(ERROR, "recv() connection closed prematurely")
-				goto finally;
-			} else {
-				totalBytesRcvd += numBytes; // Keep tally of total bytes
-				buffer[numBytes] = '\0';    // Terminate the string!
-				log(INFO, "%s", buffer);    // Print the echo buffer
-			}
-		}*/
-	}
-		
-	free(echoString);
-	close(sock);
 	return 0;
 }
