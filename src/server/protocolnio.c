@@ -170,10 +170,13 @@ int protocol_register_admin(char *uname, char *token) { // ambos null terminated
         if (strcmp(uname, admins[i].uname) == 0)
             return -1; // username ya existente
     }
-
+    
+    if(strcmp(uname,default_admin_uname) == 0){
+        return -1;
+    }
     // insertamos al final (podrian insertarse en orden alfabetico para mas eficiencia pero al ser pocos es irrelevante)
-    strncpy(admins[registered_admins].uname, registered_admins == 0 ? default_admin_uname : uname, 0xff);
-    strncpy(admins[registered_admins++].token, token, 0x11);
+    strncpy(admins[registered_admins].uname, uname, ADMIN_UNAME_SIZE - 1);
+    strncpy(admins[registered_admins++].token, token, ADMIN_TOKEN_SIZE - 1);
     return 0;
 }
 

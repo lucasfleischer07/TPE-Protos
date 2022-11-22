@@ -78,7 +78,3 @@ ipv6_socket_binder(struct in6_addr bind_address, unsigned port) {
 
     return server;
 }
-
-
-
-

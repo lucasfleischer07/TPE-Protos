@@ -1322,7 +1322,7 @@ static void log_current_local_date(char *buf) {
     if ((rawtime = time(NULL)) != -1 && (ptm = localtime(&rawtime)) != NULL) {
         if (strftime(buf, 50, "%FT%T", ptm) > 0) {
             printf("%s", buf);
-            printf("%s", ptm->tm_zone); //indica el offset local con respecto a UTC
+            printf("%s", ptm->__tm_zone); //indica el offset local con respecto a UTC
         }
         else
             printf("<date error>");
